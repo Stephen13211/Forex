@@ -9,9 +9,10 @@
 CTrade trade;
 
 input bool   DemoOnly=true;
-input double RiskPerTradePercent=1.0; // Percentage of current account equity
-input double MaxDailyLossPercent=3.0; // Percentage of equity at start of trading day
-input double MaxWeeklyLossPercent=9.0; // Percentage of equity at start of trading week
+input bool   UseBrokerMinimumLot=true; // true = broker minimum; false = use FixedLotSize
+input double FixedLotSize=0.01; // Used when UseBrokerMinimumLot=false
+input double MaxDailyLossPercent=3.0; // Account-level safety limit, not stop-loss placement
+input double MaxWeeklyLossPercent=9.0; // Account-level safety limit, not stop-loss placement
 input int    MaxConsecutiveLosses=2;
 input double MinimumRR=2.0;
 input int    MaxSpreadPoints=80;
@@ -74,20 +75,17 @@ bool Signal(int &side,double &sl,double &tp) {
  return false;
 }
 double LotsForRisk(double entry,double stop) {
- double distance=MathAbs(entry-stop),tickSize=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE),tickValue=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
- double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX),step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
- if(distance<=0||tickSize<=0||tickValue<=0||step<=0)return 0;
- double lossPerLot=(distance/tickSize)*tickValue;if(lossPerLot<=0)return 0;
- double riskMoney=AccountInfoDouble(ACCOUNT_EQUITY)*RiskPerTradePercent/100.0;
- double raw=riskMoney/lossPerLot;
- double lots=MathFloor(raw/step)*step;
- // If the calculated size is below broker minimum, use minimum volume as requested.
- // This can exceed the percentage target; print the actual estimated risk for visibility.
+ double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+ double vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+ double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+ if(vmin<=0||vmax<=0||step<=0)return 0;
+ double requested=UseBrokerMinimumLot?vmin:FixedLotSize;
+ requested=MathMax(vmin,MathMin(requested,vmax));
+ double lots=MathFloor(requested/step+1e-8)*step;
+ lots=NormalizeDouble(lots,2);
  if(lots<vmin)lots=vmin;
- lots=MathMin(lots,vmax);
- double actualRisk=lots*lossPerLot;
- double actualRiskPct=AccountInfoDouble(ACCOUNT_EQUITY)>0?actualRisk/AccountInfoDouble(ACCOUNT_EQUITY)*100.0:0;
- if(actualRiskPct>RiskPerTradePercent+0.01)Print("WARNING: broker minimum lot risks approximately ",DoubleToString(actualRiskPct,2),"% (target ",DoubleToString(RiskPerTradePercent,2),"%).");
+ Print("Gold Hunter lot size: ",DoubleToString(lots,2),
+       UseBrokerMinimumLot?" (broker minimum)":" (user adjustable)");
  return lots;
 }
 int OnInit(){
