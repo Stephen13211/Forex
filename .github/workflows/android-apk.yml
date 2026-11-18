@@ -42,6 +42,11 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
 
+      - name: Diagnose Expo Android module metadata
+        run: |
+          npx expo-modules-autolinking resolve --platform android > /tmp/expo-autolinking.json
+          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/expo-autolinking.json","utf8")); console.log(JSON.stringify((x.modules||[]).map((m,i)=>({index:i,name:m.packageName||m.name,projects:m.projects?.map(p=>({name:p.name,publication:p.publication}))})),null,2))'
+
       - name: Build installable debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
