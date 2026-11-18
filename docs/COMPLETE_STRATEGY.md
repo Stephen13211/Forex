@@ -1,7 +1,7 @@
 # Gold Hunter AI — Complete strategy ruleset (research specification)
 
 ## Market and hierarchy
-Instrument: Deriv MT5 gold symbol (verify exact symbol, often XAUUSD or broker-specific suffix). Primary execution chart M15. H4 is the broad regime, H1 confirms it, M15 creates the setup, M5 confirms entry. If H4 and H1 disagree, the only valid signal is NO TRADE.
+Instrument: Deriv cTrader gold CFD symbol (verify exact symbol, often XAUUSD or broker-specific suffix). Primary execution chart M15. H4 is the broad regime, H1 confirms it, M15 creates the setup, M5 confirms entry. If H4 and H1 disagree, the only valid signal is NO TRADE.
 
 ## Direction
 Bullish regime requires H4 and H1 bullish structure (higher highs/higher lows) with EMA50 above EMA200 and price behaviour consistent with that direction. Bearish regime is the inverse (lower lows/lower highs; EMA50 below EMA200). EMAs support structure; they are not a standalone signal. Sideways, compressed, unclear, late-stage or reversal conditions are filtered out.
@@ -22,8 +22,8 @@ Build zones from confirmed H4/H1 swing highs/lows, previous day and week high/lo
 ## Quality score (initial heuristic, not a probability)
 H4/H1 alignment 20; H1 structure 10; M15 pullback into zone 15; trendline confluence 10; liquidity sweep 10; M15 structure break 15; M5 confirmation 10; reward/risk and room to target 10. Minimum 80/100. Do not double-count correlated features. A high score never overrides a mandatory risk, spread, news, data-freshness or trend-alignment gate.
 
-## Risk limits agreed for the initial R1,000-equivalent demo
-Risk per trade R10 (1%); daily stop R30 (3%); weekly stop R90 (9%); max two entries/day; max one open position; stop after two consecutive losses; minimum initial R:R 1:2. These are account-currency amounts: if the Deriv demo account is not ZAR, convert explicitly before enabling. No martingale, grid, averaging down, recovery trades or increasing size after losses. Never force trades to meet a daily money target. If broker minimum lot exceeds risk budget, skip.
+## Risk limits for demo validation
+Use a fixed cash-risk cap selected by the owner (not a percentage). Calculate lot size from the actual swing-based stop distance using the broker's tick size/value, contract size, account currency, volume minimum/maximum/step and applicable conversion. Never move the structural stop to fit lot size. If broker minimum volume exceeds the cash-risk cap, skip the trade. No arbitrary daily trade-count cap; take every valid setup subject to one open position at a time and configurable daily/weekly loss safeguards. Stop after two consecutive losses. No martingale, grid, averaging down, recovery trades or increasing size after losses. Never force trades to meet a daily money target. Minimum initial R:R 1:2.
 
 ## Trade management variants to compare, not assume profitable
 Backtest separately: (A) fixed 2R exit; (B) partial at 2R with runner toward next opposing zone; (C) structure/ATR trailing. Only move stop to breakeven after confirmed favourable movement and costs are accounted for. Do not select a variant from a tiny sample.
