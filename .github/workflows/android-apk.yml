@@ -42,6 +42,13 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
 
+      - name: Embed production JavaScript bundle into Android assets
+        run: |
+          mkdir -p android/app/src/main/assets android/app/src/main/res
+          npx expo export:embed --platform android --dev false --entry-file node_modules/expo-router/entry --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res
+          test -s android/app/src/main/assets/index.android.bundle
+          echo "Production Android bundle created: $(du -h android/app/src/main/assets/index.android.bundle | cut -f1)"
+
       - name: Diagnose Expo Android module metadata
         run: |
           npx expo-modules-autolinking resolve --platform android --json > /tmp/expo-autolinking.json
@@ -50,6 +57,19 @@ jobs:
       - name: Build installable debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
+
+      - name: Verify APK contains offline JavaScript bundle
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | grep -E 'assets/index\\.android\\.bundle        uses: actions/upload-artifact@v4
+        with:
+          name: gold-hunter-ai-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+          unzip -p "$APK" assets/index.android.bundle | head -c 1 | grep -q .
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
