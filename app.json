@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Gold Hunter AI",
+    "slug": "gold-hunter-ai",
+    "scheme": "goldhunterai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router"
+    ],
+    "android": {
+      "package": "za.co.goldhunterai.app"
+    },
+    "extra": {
+      "router": {}
+    }
+  }
+}
