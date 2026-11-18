@@ -1,20 +1,13 @@
-# Demo testing checklist
+# Gold Hunter AI — demo test and release checklist
 
-## Compile
-Copy trading/GoldHunterEA.mq5 into MetaTrader 5 > File > Open Data Folder > MQL5 > Experts. Open in MetaEditor and compile. Resolve any broker/build-specific warnings before use.
+1. Install MetaTrader 5 desktop and log in to a Deriv DEMO account only.
+2. Confirm account currency. The R10/R30/R90 risk values apply only when account currency is ZAR; convert for another currency.
+3. Open the exact Deriv gold symbol. Record contract size, tick size, tick value (profit and loss), volume min/max/step, stop/freeze levels, spread and trading sessions.
+4. Compile trading/GoldHunterEA.mq5 in MetaEditor. Do not remove DemoOnly. A compile success is not a strategy validation.
+5. Strategy Tester: real ticks where available, variable spread, commission and swaps. Test several market regimes and keep a final untouched out-of-sample period.
+6. Record number of trades, expectancy in R, profit factor, maximum equity drawdown, average win/loss, consecutive losses, spread sensitivity and monthly results.
+7. Run forward demo for several weeks. Compare intended signal, actual fill, stop distance, risk amount and broker-side SL/TP.
+8. Do not connect a live account or raise risk based on a short winning streak.
 
-## Demo only
-The EA refuses to initialise unless the account is a DEMO account. Do not remove this safeguard for initial testing.
-
-## Inputs
-- RiskPerTradeAccountCurrency: 10 only if account currency is ZAR; otherwise use a correctly converted risk amount.
-- MaxDailyLossAccountCurrency: 30 (same currency as account).
-- MaxWeeklyLossAccountCurrency: 90 (same currency as account).
-- MaxSpreadPoints: calibrate against actual broker symbol.
-- MinimumRR: 2.0.
-
-## Strategy Tester
-Use XAUUSD, M15, every tick based on real ticks where available. Include realistic spread, commission and swap. Test at least 2-3 years if data quality allows. Keep a separate untouched out-of-sample period. A backtest is not a guarantee of future results.
-
-## Known unfinished safeguards
-The first EA release is a research prototype. Daily/weekly counters are not persistent after terminal restart; no economic-calendar blackout; no broker-specific stop-distance preflight; no partial close/trailing; no comprehensive multi-position filtering by symbol+magic; and no independent trade-server heartbeat. Do not use on a live account.
+## Known implementation gaps before live use
+The current EA file is an initial prototype and does not yet implement the entire specification: automatic swing-structure classification and non-repainting trendlines; zone map and liquidity sweep detection; quality-score engine; economic calendar blackout with fail-closed behaviour; session/DST handling; robust persistent daily/weekly and consecutive-loss state; partial exits/runner and trailing alternatives; comprehensive multi-position ownership checks; secure remote bridge/authentication/heartbeat; and mobile push alerts. These must be implemented and independently tested before any live use. The app currently displays honest connection placeholders and configuration/reference screens; it does not yet control an EA remotely.
