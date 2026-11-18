@@ -12,7 +12,6 @@ input bool   DemoOnly=true;
 input double RiskPerTradeAccountCurrency=10.0; // Set to 10 only if account currency is ZAR
 input double MaxDailyLossAccountCurrency=30.0;
 input double MaxWeeklyLossAccountCurrency=90.0;
-input int    MaxEntriesPerDay=2;
 input int    MaxConsecutiveLosses=2;
 input double MinimumRR=2.0;
 input int    MaxSpreadPoints=80;
@@ -25,7 +24,7 @@ input ulong  Magic=18112026;
 
 int h4Fast,h4Slow,h1Fast,h1Slow,m15Fast,m15Slow,m5Fast,m5Slow,atrHandle;
 datetime lastM15Bar=0;
-int entriesToday=0, consecutiveLosses=0;
+int consecutiveLosses=0;
 double dayStartEquity=0, weekStartEquity=0;
 int dayKey=-1, weekKey=-1;
 
@@ -34,7 +33,7 @@ bool ReadBuf(int handle,int shift,double &v) { double a[]; ArraySetAsSeries(a,tr
 bool NewM15Bar() { datetime t=iTime(_Symbol,PERIOD_M15,0); if(t==0||t==lastM15Bar)return false; lastM15Bar=t; return true; }
 void ResetPeriods() {
  MqlDateTime d; TimeToStruct(TimeCurrent(),d); int dk=d.year*1000+d.day_of_year;
- if(dk!=dayKey){dayKey=dk;dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);entriesToday=0;consecutiveLosses=0;}
+ if(dk!=dayKey){dayKey=dk;dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);consecutiveLosses=0;}
  int wk=d.year*100+d.day_of_year/7;
  if(wk!=weekKey){weekKey=wk;weekStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);}
 }
@@ -42,8 +41,12 @@ bool LimitsOK() {
  ResetPeriods();
  double eq=AccountInfoDouble(ACCOUNT_EQUITY);
  if(dayStartEquity-eq>=MaxDailyLossAccountCurrency || weekStartEquity-eq>=MaxWeeklyLossAccountCurrency)return false;
- if(entriesToday>=MaxEntriesPerDay || consecutiveLosses>=MaxConsecutiveLosses)return false;
- if(PositionsTotal()>0)return false;
+ if(consecutiveLosses>=MaxConsecutiveLosses)return false;
+ // Only block another entry while this EA already has a position on this symbol.
+ for(int i=PositionsTotal()-1;i>=0;i--){
+   ulong ticket=PositionGetTicket(i);
+   if(ticket>0 && PositionGetString(POSITION_SYMBOL)==_Symbol && (ulong)PositionGetInteger(POSITION_MAGIC)==Magic)return false;
+ }
  return true;
 }
 bool Trend(int hf,int hs,int &direction) {
@@ -96,7 +99,7 @@ void OnTick(){
  double entry=side>0?SymbolInfoDouble(_Symbol,SYMBOL_ASK):SymbolInfoDouble(_Symbol,SYMBOL_BID);
  double lots=LotsForRisk(entry,sl);if(lots<=0){Print("Skipped: broker minimum volume exceeds configured risk.");return;}
  bool ok=side>0?trade.Buy(lots,_Symbol,0,sl,tp,"GoldHunter demo buy"):trade.Sell(lots,_Symbol,0,sl,tp,"GoldHunter demo sell");
- if(ok)entriesToday++;else Print("Order rejected: ",trade.ResultRetcodeDescription());
+ if(!ok)Print("Order rejected: ",trade.ResultRetcodeDescription());
 }
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &request,const MqlTradeResult &result){
  if(trans.type!=TRADE_TRANSACTION_DEAL_ADD||trans.deal==0)return;
