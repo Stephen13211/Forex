@@ -1,14 +1,14 @@
 # Gold Hunter AI
 
-Charcoal-and-gold Android app for a Deriv MT5 XAUUSD demo-trading workflow.
+Charcoal-and-gold Android app for a Deriv cTrader XAUUSD demo-trading workflow.
 
 ## Included
-- Expo React Native app with Home, Chart, Strategy, Risk, History, MT5 and Profile tabs.
+- Expo React Native app with Home, Chart, Strategy, Risk, History, cTrader and Profile tabs.
 - Supabase email/password sign-in, registration, session persistence and password-reset email request.
 - Supabase client configured for the separate Gold Hunter AI project.
 - Initial PostgreSQL schema and row-level security policies in `supabase/setup.sql`.
 - Multi-timeframe strategy specification in `docs/COMPLETE_STRATEGY.md`.
-- Initial MQL5 Expert Advisor prototype in `trading/GoldHunterEA.mq5`.
+- Legacy MT5 Expert Advisor prototype retained for reference only; it is not the selected execution route.
 - GitHub Actions workflow to type-check, export Android JS bundle, and build an installable debug APK.
 
 ## Android APK
@@ -25,8 +25,8 @@ Follow [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md) and run [supabase/setup.
 
 ## Current trading readiness — read before use
 - Broker: Deriv only. Trading mode: demo only.
-- The mobile app does not yet place or remotely control trades.
-- The EA is a prototype and has not been compiled or validated in MetaEditor in this environment.
+- The mobile app does not yet place or remotely control trades. cTrader Open API application approval is pending; secure OAuth/backend integration and demo execution validation remain.
+- The legacy MT5 EA is not the selected cTrader execution engine and has not been validated.
 - Full swing-structure/trendline/zone/sweep scoring, economic-calendar blackout, DST-aware session filtering, persistent loss state and secure remote bridge still require implementation and testing.
 - Never connect a live account or assume profitability. Validate on historical data and forward demo first.
 
