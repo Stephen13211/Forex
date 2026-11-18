@@ -9,9 +9,9 @@
 CTrade trade;
 
 input bool   DemoOnly=true;
-input double RiskPerTradeAccountCurrency=10.0; // Set to 10 only if account currency is ZAR
-input double MaxDailyLossAccountCurrency=30.0;
-input double MaxWeeklyLossAccountCurrency=90.0;
+input double RiskPerTradePercent=1.0; // Percentage of current account equity
+input double MaxDailyLossPercent=3.0; // Percentage of equity at start of trading day
+input double MaxWeeklyLossPercent=9.0; // Percentage of equity at start of trading week
 input int    MaxConsecutiveLosses=2;
 input double MinimumRR=2.0;
 input int    MaxSpreadPoints=80;
@@ -40,7 +40,8 @@ void ResetPeriods() {
 bool LimitsOK() {
  ResetPeriods();
  double eq=AccountInfoDouble(ACCOUNT_EQUITY);
- if(dayStartEquity-eq>=MaxDailyLossAccountCurrency || weekStartEquity-eq>=MaxWeeklyLossAccountCurrency)return false;
+ if(dayStartEquity>0 && (dayStartEquity-eq)/dayStartEquity*100.0>=MaxDailyLossPercent)return false;
+ if(weekStartEquity>0 && (weekStartEquity-eq)/weekStartEquity*100.0>=MaxWeeklyLossPercent)return false;
  if(consecutiveLosses>=MaxConsecutiveLosses)return false;
  // Only block another entry while this EA already has a position on this symbol.
  for(int i=PositionsTotal()-1;i>=0;i--){
@@ -65,10 +66,10 @@ bool Signal(int &side,double &sl,double &tp) {
  double spread=(ask-bid)/_Point;if(spread>MaxSpreadPoints||atr<=0)return false;
  // Strict direction: EMA trend + pullback near M15 EMA50, closed-candle rejection and break of prior candle.
  if(a==1 && m15f>m15s && m5f>m5s && r[1].low<=m15f+0.20*atr && r[1].close>r[1].open && r[1].close>r[2].high && q[1].close>q[1].open) {
-   side=1; sl=MathMin(RecentLow(PERIOD_M15,SwingLookback),ask-ATRStopMultiplier*atr); double risk=ask-sl;if(risk<=0)return false;tp=ask+MinimumRR*risk;return true;
+   side=1; double swingLow=RecentLow(PERIOD_M15,SwingLookback,2); double previousHigh=RecentHigh(PERIOD_M15,SwingLookback,2); sl=swingLow-0.10*atr; double risk=ask-sl;if(risk<=0||previousHigh<=ask)return false;tp=previousHigh;return true;
  }
  if(a==-1 && m15f<m15s && m5f<m5s && r[1].high>=m15f-0.20*atr && r[1].close<r[1].open && r[1].close<r[2].low && q[1].close<q[1].open) {
-   side=-1; sl=MathMax(RecentHigh(PERIOD_M15,SwingLookback),bid+ATRStopMultiplier*atr); double risk=sl-bid;if(risk<=0)return false;tp=bid-MinimumRR*risk;return true;
+   side=-1; double swingHigh=RecentHigh(PERIOD_M15,SwingLookback,2); double previousLow=RecentLow(PERIOD_M15,SwingLookback,2); sl=swingHigh+0.10*atr; double risk=sl-bid;if(risk<=0||previousLow>=bid)return false;tp=previousLow;return true;
  }
  return false;
 }
@@ -77,9 +78,17 @@ double LotsForRisk(double entry,double stop) {
  double vmin=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN),vmax=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX),step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
  if(distance<=0||tickSize<=0||tickValue<=0||step<=0)return 0;
  double lossPerLot=(distance/tickSize)*tickValue;if(lossPerLot<=0)return 0;
- double raw=RiskPerTradeAccountCurrency/lossPerLot;
+ double riskMoney=AccountInfoDouble(ACCOUNT_EQUITY)*RiskPerTradePercent/100.0;
+ double raw=riskMoney/lossPerLot;
  double lots=MathFloor(raw/step)*step;
- if(lots<vmin)return 0;return MathMin(lots,vmax);
+ // If the calculated size is below broker minimum, use minimum volume as requested.
+ // This can exceed the percentage target; print the actual estimated risk for visibility.
+ if(lots<vmin)lots=vmin;
+ lots=MathMin(lots,vmax);
+ double actualRisk=lots*lossPerLot;
+ double actualRiskPct=AccountInfoDouble(ACCOUNT_EQUITY)>0?actualRisk/AccountInfoDouble(ACCOUNT_EQUITY)*100.0:0;
+ if(actualRiskPct>RiskPerTradePercent+0.01)Print("WARNING: broker minimum lot risks approximately ",DoubleToString(actualRiskPct,2),"% (target ",DoubleToString(RiskPerTradePercent,2),"%).");
+ return lots;
 }
 int OnInit(){
  if(DemoOnly&&!IsDemo()){Print("Gold Hunter: DEMO ACCOUNT REQUIRED. EA will not trade.");return INIT_FAILED;}
