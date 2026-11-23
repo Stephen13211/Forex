@@ -126,7 +126,7 @@ type MarketSnapshot = {
  connected:boolean;environment:string;accountId:string;strategy?:{direction:string;score:number;status:string;h4:string;h1:string;setup:string;confirmation:string;entry:number|null;stop:number|null;target:number|null;reasons:string[]}|null;
  symbol:{name:string;symbolId:number;digits:number|null;pipPosition:number|null;minVolume:number|null;stepVolume:number|null;maxVolume:number|null;lotSize:number|null;tradingMode:number|null};
  account:{balance:number;moneyDigits:number;leverage:number|null};quote?:{bid:number;ask:number;spread:number;timestamp:number};
- candles:Record<string,MarketCandle[]>;candlesFresh?:boolean;quoteFresh?:boolean;openPositions?:Record<string,unknown>[];pendingOrders?:Record<string,unknown>[];receivedAt:string;dataReady:boolean;
+ candles:Record<string,MarketCandle[]>;candlesFresh?:boolean;quoteFresh?:boolean;sessionOpen?:boolean;openPositions?:Record<string,unknown>[];pendingOrders?:Record<string,unknown>[];receivedAt:string;dataReady:boolean;
 };
 function MarketDataPanel(){
  const [snapshot,setSnapshot]=useState<MarketSnapshot|null>(null);
@@ -151,6 +151,7 @@ function MarketDataPanel(){
    <Row label="Live bid" value={snapshot.quote?.bid?.toFixed(snapshot.symbol.digits??2)??"Unavailable"}/>
    <Row label="Live ask" value={snapshot.quote?.ask?.toFixed(snapshot.symbol.digits??2)??"Unavailable"}/>
    <Row label="Spread" value={snapshot.quote?.spread?.toFixed(snapshot.symbol.digits??2)??"Unavailable"}/>
+   <Row label="London / New York session" value={snapshot.sessionOpen?"OPEN":"CLOSED"}/>
    <Row label="Broker open positions" value={String(snapshot.openPositions?.length??0)}/>
    <Row label="Broker pending orders" value={String(snapshot.pendingOrders?.length??0)}/>
    <Row label="cTrader account ID" value={snapshot.accountId}/>
