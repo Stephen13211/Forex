@@ -101,6 +101,7 @@ export function sizeXauUsdVolumeWithFees(input: {
   }
   const firstStep = Math.ceil(minVolume / volumeStep - 1e-9);
   const lastStep = Math.floor(maxVolume / volumeStep + 1e-9);
+  if (firstStep > lastStep) return { ok: false as const, reason: "Broker minimum volume and volume step do not fit inside the maximum volume." };
   const estimate = (step: number) => {
     const volume = step * volumeStep;
     const commission = estimateXauUsdRoundTurnCommission({
