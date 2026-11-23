@@ -18,12 +18,6 @@ export async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function encryptionKey(): Promise<CryptoKey> {
-  const raw = Uint8Array.from(atob(requiredEnv("CTRADER_TOKEN_ENCRYPTION_KEY")), (c) => c.charCodeAt(0));
-  if (raw.length !== 32) throw new Error("CTRADER_TOKEN_ENCRYPTION_KEY must be base64 for exactly 32 random bytes");
-  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt"]);
-}
-
 async function encryptionKey(usage: KeyUsage[]): Promise<CryptoKey> {
   const raw = Uint8Array.from(atob(requiredEnv("CTRADER_TOKEN_ENCRYPTION_KEY")), (c) => c.charCodeAt(0));
   if (raw.length !== 32) throw new Error("CTRADER_TOKEN_ENCRYPTION_KEY must be base64 for exactly 32 random bytes");
