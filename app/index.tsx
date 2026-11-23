@@ -56,7 +56,7 @@ function CTraderConnectPanel(){
   setMessage(data?.message??(found.length?"Choose the Deriv demo account you want Gold Hunter AI to use.":"No eligible Deriv demo accounts were found."));
  }
  useEffect(()=>{
-  const handle=(url:string)=>{if(url.includes("ctrader-connected")){setMessage("cTrader authorisation received. Retrieving your Deriv demo accounts…");void loadAccounts();}};
+  const handle=(url:string)=>{if(url.includes("ctrader=connected")||url.includes("ctrader-connected")){setMessage("cTrader authorisation received. Retrieving your Deriv demo accounts…");void loadAccounts();}};
   Linking.getInitialURL().then(url=>{if(url)handle(url);});
   const sub=Linking.addEventListener("url",event=>handle(event.url));
   return()=>sub.remove();
