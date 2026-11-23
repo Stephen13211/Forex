@@ -204,8 +204,30 @@ function TradeHistoryPanel(){
  </Card>;
 }
 
+
+function HomeDashboard(){
+ const [broker,setBroker]=useState("CHECKING"),[risk,setRisk]=useState("NOT CONFIGURED"),[bot,setBot]=useState("STOPPED");
+ useEffect(()=>{let active=true;(async()=>{
+  const {data:{user}}=await supabase.auth.getUser();
+  if(!user){if(active){setBroker("SIGN IN REQUIRED");setRisk("NOT CONFIGURED");}return;}
+  const [account,settings,botSettings]=await Promise.all([
+   supabase.from("ctrader_accounts").select("connection_status,environment").eq("user_id",user.id).eq("environment","demo").maybeSingle(),
+   supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash").eq("user_id",user.id).maybeSingle(),
+   supabase.from("bot_settings").select("bot_enabled,environment").eq("user_id",user.id).maybeSingle()
+  ]);
+  if(!active)return;
+  setBroker(account.data?.connection_status==="connected"?"DERIV DEMO LINKED":"NOT CONNECTED");
+  setRisk(settings.data?.cash_risk_per_trade&&settings.data?.daily_loss_limit_cash&&settings.data?.weekly_loss_limit_cash?"CONFIGURED":"NOT CONFIGURED");
+  setBot(botSettings.data?.bot_enabled?"ENABLED IN SETTINGS":"STOPPED");
+ })();return()=>{active=false;};},[]);
+ return <><Card><Text style={s.kicker}>GOLD HUNTER AI · XAUUSD</Text><Text style={s.big}>DEMO SYSTEM</Text><Text style={s.muted}>The app is restricted to your Deriv cTrader demo account. Live-account trading is not supported.</Text><View style={s.pills}><Text style={s.pill}>{broker}</Text><Text style={s.pill}>{risk} RISK</Text><Text style={s.pill}>{bot}</Text></View></Card>
+ <View style={s.metrics}><Metric label="ACCOUNT BALANCE" value="VIEW CHART" sub="Latest broker snapshot"/><Metric label="OPEN POSITIONS" value="VIEW CHART" sub="Broker reconciliation"/><Metric label="TRADE HISTORY" value="VIEW HISTORY"/></View>
+ <Card><Heading>Trading framework</Heading><Row label="Market" value="XAUUSD"/><Row label="Higher timeframe direction" value="H4 + H1"/><Row label="Setup timeframe" value="M15"/><Row label="Entry confirmation" value="M5"/><Row label="Stop loss" value="Confirmed structure + ATR buffer"/><Row label="Position sizing" value="Fixed cash risk"/><Row label="Maximum open positions" value="1"/><Row label="Daily trade cap" value="NONE"/></Card>
+ <Card><Heading>Safety status</Heading><Row label="Environment" value="DEMO ONLY"/><Row label="Live trading" value="DISABLED"/><Row label="Automatic execution" value="NOT ENABLED"/><Text style={s.body}>Market data and strategy evaluation are connected in the Chart screen. Automated execution is still locked pending broker contract validation, news protection, loss-limit enforcement and a verified demo order test.</Text></Card></>;
+}
+
 function Screen({tab}:{tab:Tab}){
- if(tab==="Home")return <><Card><Text style={s.kicker}>ACCOUNT BALANCE · DERIV cTrader</Text><Text style={s.big}>UNKNOWN</Text><Text style={s.muted}>Connect a verified demo account to load balance and equity. No sample account values are presented as real.</Text><View style={s.pills}><Text style={s.pill}>DEMO MODE</Text><Text style={[s.pill,{borderColor:"#B97824",color:"#F2A23A"}]}>cTrader NOT CONNECTED</Text><Text style={s.pill}>BOT STOPPED</Text></View></Card><View style={s.metrics}><Metric label="DAILY P/L" value="—" sub="Waiting for cTrader"/><Metric label="OPEN TRADES" value="0"/><Metric label="TRADES TODAY" value="0"/></View><Card><Heading>Gold Hunter AI</Heading><Text style={s.body}>Your multi-timeframe XAUUSD strategy workspace. Trading is disabled until the Deriv demo bridge is connected and verified.</Text><Row label="Market" value="XAUUSD"/><Row label="Trend framework" value="H4 + H1"/><Row label="Setup timeframe" value="M15"/><Row label="Entry confirmation" value="M5"/><Row label="Execution" value="DEMO ONLY"/></Card><Card><Heading>System safety</Heading><Row label="Risk per trade" value="NOT CONFIGURED"/><Row label="Daily loss limit" value="NOT CONFIGURED"/><Row label="Weekly loss limit" value="NOT CONFIGURED"/><Row label="Daily trade cap" value="NONE"/><Row label="Maximum open positions" value="1"/></Card></>;
+ if(tab==="Home")return <HomeDashboard/>;
  if(tab==="Chart")return <MarketDataPanel/>;
  if(tab==="Strategy")return <><Card><Heading>Gold Hunter strategy</Heading><Text style={s.body}>Strict trend-following pullback strategy. H4 and H1 must agree; disagreement, unclear structure or stale data means NO TRADE.</Text><Row label="H4" value="Primary direction"/><Row label="H1" value="Must confirm H4"/><Row label="M15" value="Pullback + structure break"/><Row label="M5" value="Entry confirmation"/><Row label="EMA filters" value="50 / 200"/><Row label="Minimum reward:risk" value="1 : 2"/><Row label="Quality threshold" value="100 / 100"/></Card><Card><Heading>Setup checklist</Heading>{["H4 and H1 structure agree (HH/HL for buys; LH/LL for sells)","Price pulls back into a valid H1/M15 support or resistance zone","EMA50 / EMA200 and trendline confluence support direction","Liquidity sweep is confirmed, not assumed","M15 candle closes through the relevant structure level","M5 confirms direction or a retest before entry","There is clear room to target and at least 2R after costs","Spread, ATR, session, news and risk gates all pass"].map((x,i)=><Row key={i} label={x} value="REQUIRED"/>)} </Card><Card><Heading>Quality scoring · all mandatory gates (100/100)</Heading><Row label="H4/H1 alignment" value="20"/><Row label="H1 market structure" value="10"/><Row label="M15 pullback into zone" value="15"/><Row label="Trendline confluence" value="10"/><Row label="Liquidity sweep" value="10"/><Row label="M15 structure break" value="15"/><Row label="M5 confirmation" value="10"/><Row label="R:R and target room" value="10"/><Text style={s.muted}>Score is a ranking heuristic, not a probability of winning. Mandatory safety gates cannot be overridden by a high score.</Text></Card><Card><Heading>Automatic filters</Heading>{["London and New York session windows","Maximum spread and abnormal spread expansion","ATR volatility range","Avoid sideways or overextended markets","Previous day/week highs and lows; Asian range","High-impact USD news blackout","No stale prices or duplicate orders"].map((x,i)=><Row key={i} label={x} value="PLANNED"/>)} </Card></>;
  if(tab==="Risk")return <RiskSettingsPanel/>;
