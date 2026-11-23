@@ -1,8 +1,7 @@
 name: Gold Hunter AI Android APK
 
 on:
-  push:
-    branches: [main]
+  # APK builds are manual only until backend and demo execution are verified.
   workflow_dispatch:
 
 permissions:
