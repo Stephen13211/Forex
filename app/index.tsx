@@ -109,7 +109,7 @@ function RiskSettingsPanel(){
    if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.verified!==true||market?.newsProtection?.status==="unknown"){
     setBotBusy(false);setBotMessage("Start blocked: live broker data and a fresh, verified high-impact USD news calendar are required.");return;
    }
-   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:2,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(riskError){setBotBusy(false);setBotMessage("Could not enable risk permission: "+riskError.message);return;}
    const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(botError){await supabase.from("risk_settings").update({trading_enabled:false}).eq("user_id",user.id);setBotBusy(false);setBotMessage("Could not start the demo scanner: "+botError.message);return;}
@@ -131,7 +131,7 @@ function RiskSettingsPanel(){
   if(!user){setBusy(false);setMessage("Sign in before saving risk settings.");return;}
   const {error}=await supabase.from("risk_settings").upsert({
    user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],
-   max_open_positions:1,max_consecutive_losses:2,minimum_reward_risk:2,demo_only:true,trading_enabled:false,updated_at:new Date().toISOString()
+   max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:false,updated_at:new Date().toISOString()
   },{onConflict:"user_id"});
   setBusy(false);setMessage(error?"Risk settings were not saved: "+error.message:"Fixed cash-risk settings saved. Automated trading remains disabled until the broker risk and order safeguards are verified.");
  }
@@ -148,7 +148,7 @@ function RiskSettingsPanel(){
   <Pressable disabled={botBusy||!botEnabled} onPress={()=>void setAutomaticTrading(false)} style={[s.authButton,{backgroundColor:"#252B36",marginTop:9},(botBusy||!botEnabled)&&{opacity:.45}]}><Text style={[s.authButtonText,{color:GOLD}]}>{botBusy?"PLEASE WAIT":"STOP DEMO SCANNER"}</Text></Pressable>
   <Text style={s.authMessage}>{botMessage}</Text>
   <Row label="Maximum open positions" value="1"/>
-  <Row label="Consecutive-loss pause" value="2"/>
+  <Row label="Consecutive-loss pause" value="3"/>
   <Row label="Minimum reward:risk" value="2.0"/>
   <Row label="Daily trade cap" value="NONE"/>
   <Row label="Trading permission" value="LOCKED OFF"/>
