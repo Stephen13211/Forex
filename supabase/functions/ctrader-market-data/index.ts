@@ -196,7 +196,12 @@ Deno.serve(async(req)=>{
     const result={
       connected:true,environment:"demo",accountId,symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,measurementUnits:detail.measurementUnits??null,
-        tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null},
+        tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null,
+        commission:detail.commission??null,commissionType:detail.commissionType??null,
+        preciseTradingCommissionRate:detail.preciseTradingCommissionRate??null,
+        minCommission:detail.minCommission??null,minCommissionType:detail.minCommissionType??null,
+        minCommissionAsset:detail.minCommissionAsset??null,preciseMinCommission:detail.preciseMinCommission??null,
+        pnlConversionFeeRate:detail.pnlConversionFeeRate??null},
       account:{balance,moneyDigits,leverage:trader.leverageInCents??null,depositAssetId:trader.depositAssetId??null},
       quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,candlesFresh,quoteFresh,sessionOpen,receivedAt:new Date().toISOString(),dataReady
     };
