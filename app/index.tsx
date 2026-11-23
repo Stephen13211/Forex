@@ -29,10 +29,22 @@ function AuthPanel(){
 }
 
 
+type AvailableCTraderAccount = { account_id: string; login: string | null; broker: string; environment: string };
+
 function CTraderConnectPanel(){
- const [busy,setBusy]=useState(false),[message,setMessage]=useState("OAuth backend code is ready to deploy. Connect only a Deriv DEMO cTrader account.");
+ const [busy,setBusy]=useState(false),[message,setMessage]=useState("Connect your Deriv cTrader DEMO account. Only demo accounts from Deriv will be listed."),[accounts,setAccounts]=useState<AvailableCTraderAccount[]>([]),[connected,setConnected]=useState<AvailableCTraderAccount|null>(null);
+ async function loadAccounts(){
+  setBusy(true);setMessage("Securely checking the cTrader demo account list…");
+  const {data,error}=await supabase.functions.invoke("ctrader-accounts",{body:{}});
+  setBusy(false);
+  if(error){setMessage("Could not retrieve accounts. Make sure you have authorised cTrader and the account-discovery function has been deployed.");return;}
+  if(data?.error){setMessage(data.error);return;}
+  const found=Array.isArray(data?.accounts)?data.accounts as AvailableCTraderAccount[]:[];
+  setAccounts(found);
+  setMessage(data?.message??(found.length?"Choose the Deriv demo account you want Gold Hunter AI to use.":"No eligible Deriv demo accounts were found."));
+ }
  useEffect(()=>{
-  const handle=(url:string)=>{if(url.includes("ctrader-connected"))setMessage("cTrader authorization returned to the app. Account discovery and demo market-data checks are still required.");};
+  const handle=(url:string)=>{if(url.includes("ctrader-connected")){setMessage("cTrader authorisation received. Retrieving your Deriv demo accounts…");void loadAccounts();}};
   Linking.getInitialURL().then(url=>{if(url)handle(url);});
   const sub=Linking.addEventListener("url",event=>handle(event.url));
   return()=>sub.remove();
@@ -41,14 +53,21 @@ function CTraderConnectPanel(){
   setBusy(true);setMessage("");
   const {data,error}=await supabase.functions.invoke("ctrader-oauth-start",{body:{}});
   setBusy(false);
-  if(error){setMessage("Could not start cTrader authorization. Deploy the Supabase functions and confirm their secrets first.");return;}
-  if(!data?.authorization_url){setMessage(data?.error??"The authorization URL was not returned.");return;}
-  try{await Linking.openURL(data.authorization_url);setMessage("Opening cTrader authorization. Sign in to Deriv cTrader DEMO and approve trading access.");}
-  catch{setMessage("Could not open the cTrader authorization page on this device.");}
+  if(error){setMessage("Could not start cTrader authorisation. Check that you are signed in and the OAuth functions are deployed.");return;}
+  if(!data?.authorization_url){setMessage(data?.error??"The authorisation URL was not returned.");return;}
+  try{await Linking.openURL(data.authorization_url);setMessage("Sign in to cTrader and approve access for your Deriv DEMO account.");}
+  catch{setMessage("Could not open the cTrader authorisation page on this device.");}
  }
- return <Card><Heading>Connect Deriv cTrader DEMO</Heading><Text style={s.body}>This securely starts cTrader OAuth through Supabase. Your cTrader client secret and broker tokens never enter the mobile app.</Text><Pressable disabled={busy} onPress={connect} style={[s.authButton,busy&&{opacity:.5}]}><Text style={s.authButtonText}>{busy?"STARTING SECURE CONNECTION":"CONNECT CTRADER DEMO"}</Text></Pressable><Text style={s.authMessage}>{message}</Text><Text style={s.muted}>OAuth approval is not proof that the trading gateway works. We still need to discover your actual account and verify XAUUSD demo prices and protective orders.</Text></Card>;
+ async function selectAccount(account:AvailableCTraderAccount){
+  setBusy(true);setMessage("Authenticating the selected demo account with cTrader…");
+  const {data,error}=await supabase.functions.invoke("ctrader-accounts",{body:{account_id:account.account_id}});
+  setBusy(false);
+  if(error){setMessage("Account authentication failed. Please try again.");return;}
+  if(data?.error){setMessage(data.error);return;}
+  if(data?.connected){setConnected(account);setAccounts([]);setMessage("Deriv demo account authenticated and securely linked. Automated trading is still disabled while the market-data and risk engine are built and tested.");}
+ }
+ return <Card><Heading>Connect Deriv cTrader DEMO</Heading><Text style={s.body}>Each user authorises their own cTrader account. Gold Hunter AI retrieves the granted accounts securely on the backend; broker tokens and the app secret never enter the mobile app.</Text><Pressable disabled={busy} onPress={connect} style={[s.authButton,busy&&{opacity:.5}]}><Text style={s.authButtonText}>{busy?"PLEASE WAIT":"CONNECT CTRADER DEMO"}</Text></Pressable><Pressable disabled={busy} onPress={loadAccounts} style={[s.authButton,{backgroundColor:"#252B36",marginTop:9},busy&&{opacity:.5}]}><Text style={[s.authButtonText,{color:GOLD}]}>CHECK AUTHORISED ACCOUNTS</Text></Pressable><Text style={s.authMessage}>{message}</Text>{connected?<View style={{padding:13,borderWidth:1,borderColor:GOLD,borderRadius:12,marginTop:8}}><Text style={s.gold}>CONNECTED · DERIV DEMO</Text><Text style={s.body}>Account login: {connected.login??"Not supplied"}</Text><Text style={s.muted}>Account ID: {connected.account_id}</Text></View>:null}{accounts.map(account=><Pressable key={account.account_id} disabled={busy} onPress={()=>selectAccount(account)} style={{padding:14,borderWidth:1,borderColor:"#444B59",borderRadius:13,marginTop:9,backgroundColor:"#10141B"}}><Text style={s.rowLabel}>Deriv DEMO · {account.login??"Account"}</Text><Text style={s.muted}>Account ID: {account.account_id}</Text><Text style={s.gold}>TAP TO CONNECT THIS ACCOUNT →</Text></Pressable>)}<Text style={[s.muted,{marginTop:12}]}>Only Deriv demo accounts are accepted. A successful connection does not enable trading; live prices, strategy checks, cash-risk sizing and broker-side protective orders must still be tested.</Text></Card>;
 }
-
 function Screen({tab}:{tab:Tab}){
  if(tab==="Home")return <><Card><Text style={s.kicker}>ACCOUNT BALANCE · DERIV cTrader</Text><Text style={s.big}>UNKNOWN</Text><Text style={s.muted}>Connect a verified demo account to load balance and equity. No sample account values are presented as real.</Text><View style={s.pills}><Text style={s.pill}>DEMO MODE</Text><Text style={[s.pill,{borderColor:"#B97824",color:"#F2A23A"}]}>cTrader NOT CONNECTED</Text><Text style={s.pill}>BOT STOPPED</Text></View></Card><View style={s.metrics}><Metric label="DAILY P/L" value="—" sub="Waiting for cTrader"/><Metric label="OPEN TRADES" value="0"/><Metric label="TRADES TODAY" value="0"/></View><Card><Heading>Gold Hunter AI</Heading><Text style={s.body}>Your multi-timeframe XAUUSD strategy workspace. Trading is disabled until the Deriv demo bridge is connected and verified.</Text><Row label="Market" value="XAUUSD"/><Row label="Trend framework" value="H4 + H1"/><Row label="Setup timeframe" value="M15"/><Row label="Entry confirmation" value="M5"/><Row label="Execution" value="DEMO ONLY"/></Card><Card><Heading>System safety</Heading><Row label="Risk per trade" value="NOT CONFIGURED"/><Row label="Daily loss limit" value="NOT CONFIGURED"/><Row label="Weekly loss limit" value="NOT CONFIGURED"/><Row label="Daily trade cap" value="NONE"/><Row label="Maximum open positions" value="1"/></Card></>;
  if(tab==="Chart")return <><Card><Heading>XAUUSD Market Chart</Heading><Text style={s.pill}>NO LIVE MARKET DATA</Text><View style={s.chart}><Ionicons name="analytics-outline" size={42} color={GOLD}/><Text style={s.muted}>Chart will appear after the Deriv cTrader market-data connection is authenticated.</Text></View><Row label="H4 trend" value="UNKNOWN"/><Row label="H1 trend" value="UNKNOWN"/><Row label="M15 setup" value="WAITING"/><Row label="M5 confirmation" value="WAITING"/></Card><Card><Heading>Market context</Heading><Text style={s.body}>No candles, prices, indicators or signals are fabricated. Historical candles can be loaded for backtesting once a data source is connected.</Text></Card></>;
