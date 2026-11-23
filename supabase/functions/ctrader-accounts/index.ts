@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
       }, 2101);
       try {
         const authResult = await sendAndWait(ws, 2102, {
-          ctidTraderAccountId: selected.account_id,
+          ctidTraderAccountId: Number(selected.account_id),
           accessToken,
         }, 2103);
         if (String(authResult.payload?.ctidTraderAccountId ?? "") !== selected.account_id) {
