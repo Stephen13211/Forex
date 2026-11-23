@@ -1,0 +1,32 @@
+name: Deploy cTrader OAuth Edge Functions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Deploy cTrader OAuth start function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing GitHub Actions secret: SUPABASE_ACCESS_TOKEN" && exit 1)
+          npx --yes supabase@latest functions deploy ctrader-oauth-start --project-ref onrajhrabqtotiedgsxh
+
+      - name: Deploy cTrader OAuth callback function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          npx --yes supabase@latest functions deploy ctrader-oauth-callback --project-ref onrajhrabqtotiedgsxh
