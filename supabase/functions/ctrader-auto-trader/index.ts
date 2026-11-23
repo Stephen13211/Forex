@@ -197,6 +197,12 @@ Deno.serve(async(req)=>{
         const actualVolume=num(((live.tradeData??{}) as Record<string,unknown>).volume??live.volume??volume);
         const actualEntry=num(live.price??position.price);
         const actualStop=num(live.stopLoss);
+        const actualTarget=num(live.takeProfit);
+        const actualSide=num(((live.tradeData??{}) as Record<string,unknown>).tradeSide??((position.tradeData??{}) as Record<string,unknown>).tradeSide);
+        const actualStopDistance=s.direction==="buy"?actualEntry-actualStop:actualStop-actualEntry;
+        const actualTargetDistance=s.direction==="buy"?actualTarget-actualEntry:actualEntry-actualTarget;
+        const sideMatches=actualSide===(s.direction==="buy"?1:2);
+        const protectionValid=actualStopDistance>0&&actualTargetDistance>=actualStopDistance*2&&sideMatches;
         const actualCommission=estimateXauUsdRoundTurnCommission({
           volumeProtocol:actualVolume,entryPrice:actualEntry,lotSizeProtocol:lotSize,
           accountCurrency:brokerCurrency,quoteCurrency:brokerCurrency,
@@ -206,9 +212,9 @@ Deno.serve(async(req)=>{
           minCommissionType:data.symbol.minCommissionType==null?null:num(data.symbol.minCommissionType),
           minCommissionAsset:data.symbol.minCommissionAsset==null?null:String(data.symbol.minCommissionAsset)
         });
-        const priceRisk=Math.abs(actualEntry-actualStop)*(actualVolume/100);
+        const priceRisk=actualStopDistance*(actualVolume/100);
         const actualCashRisk=actualCommission.ok?priceRisk+actualCommission.roundTurn:Number.POSITIVE_INFINITY;
-        if(!(actualVolume>0&&actualEntry>0&&actualStop>0&&Number.isFinite(actualCashRisk)&&actualCashRisk<=cashRisk+0.000001)){
+        if(!(actualVolume>0&&actualEntry>0&&protectionValid&&Number.isFinite(actualCashRisk)&&actualCashRisk<=cashRisk+0.000001)){
           const closeId=crypto.randomUUID();const closePromise=waitFor(ws,2126,closeId,15000);
           ws.send(JSON.stringify({payloadType:2111,clientMsgId:closeId,payload:{ctidTraderAccountId:accountId,positionId:num(position.positionId),volume:actualVolume>0?actualVolume:volume}}));
           await closePromise;
