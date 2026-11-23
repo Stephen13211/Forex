@@ -115,7 +115,7 @@ Deno.serve(async(req)=>{
       if(typeof body.user_id!=="string")return json({error:"user_id required"},400);
       userId=body.user_id;
     }else{
-      const jwt=(req.headers.get("Authorization")??"").replace(/^Bearer\\s+/i,"");
+      const jwt=(req.headers.get("Authorization")??"").replace(/^Bearer\s+/i,"");
       if(!jwt)return json({error:"Sign in first"},401);
       const userClient=createClient(requiredEnv("SUPABASE_URL"),requiredEnv("SUPABASE_ANON_KEY"),{global:{headers:{Authorization:`Bearer ${jwt}`}},auth:{persistSession:false,autoRefreshToken:false}});
       const {data:{user},error:authError}=await userClient.auth.getUser(jwt);
