@@ -59,7 +59,7 @@ Deno.serve(async(req)=>{
       if(accountError||!account){outcomes.push({userId,status:"blocked",reason:"No connected Deriv demo account"});continue;}
       const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",userId).maybeSingle();
       if(tokenError||!tokenRow)throw new Error("Encrypted cTrader token unavailable");
-      const market=await fetch(requiredEnv("SUPABASE_URL")+"/functions/v1/ctrader-market-data",{method:"POST",headers:{"content-type":"application/json","x-internal-bot-secret":requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),"apikey":requiredEnv("SUPABASE_SERVICE_ROLE_KEY")},body:JSON.stringify({user_id:userId})});
+      const market=await fetch(requiredEnv("SUPABASE_URL")+"/functions/v1/ctrader-market-data",{method:"POST",headers:{"content-type":"application/json","x-internal-bot-secret":requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),"Authorization":`Bearer ${requiredEnv("SUPABASE_SERVICE_ROLE_KEY")}`,"apikey":requiredEnv("SUPABASE_SERVICE_ROLE_KEY")},body:JSON.stringify({user_id:userId})});
       const data=await market.json();
       if(!market.ok||!data.connected)throw new Error(data.error??"Market data scan failed");
       const s=data.strategy;
