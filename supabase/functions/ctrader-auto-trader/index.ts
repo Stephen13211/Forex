@@ -87,13 +87,14 @@ Deno.serve(async(req)=>{
         outcomes.push({userId,status:"blocked",reason:"Account currency conversion is not verified; order skipped rather than risking an incorrect cash amount"});continue;
       }
       const lotSize=num(data.symbol.lotSize),digits=num(data.symbol.digits),minVolume=num(data.symbol.minVolume),stepVolume=num(data.symbol.stepVolume),maxVolume=num(data.symbol.maxVolume);
+      const measurementUnits=String(data.symbol.measurementUnits??"").trim().toUpperCase();
       const stopDistance=Math.abs(num(s.entry)-num(s.stop));const targetDistance=Math.abs(num(s.target)-num(s.entry));
       
       const cashRisk=num(risk.cash_risk_per_trade);
-      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0)){
+      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits==="OZ")){
         outcomes.push({userId,status:"blocked",reason:"Broker contract or structural stop/target data is invalid"});continue;
       }
-      // cTrader volume is expressed in hundredths of a base unit.
+      // cTrader volume is hundredths of the symbol base unit. With XAUUSD\n      // measurementUnits=OZ and USD quote/deposit assets matched, one unit is\n      // one troy ounce: a $1 stop distance risks $1 per unit. Refuse any other unit.
       const rawProtocolVolume=cashRisk/(stopDistance*0.01);
       const volume=Math.floor(Math.min(rawProtocolVolume,maxVolume)/stepVolume)*stepVolume;
       const estimatedRisk=(volume/100)*stopDistance;
