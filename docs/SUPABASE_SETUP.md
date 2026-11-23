@@ -45,7 +45,7 @@ This repository now contains the first server-side OAuth layer:
 
 ### Apply the new migration
 
-Run the complete contents of `supabase/migrations/0002_ctrader_oauth_private.sql` in the Supabase SQL Editor. Do not re-run the original setup script just for this step.
+Run the complete contents of `supabase/migrations/0002_ctrader_oauth_private.sql` in the Supabase SQL Editor. Then run `supabase/migrations/0003_restore_public_schema_usage.sql` to restore normal app access to the public schema. The OAuth token tables remain inaccessible to anon/authenticated users because their table-level privileges are still revoked. Do not re-run the original setup script just for this step.
 
 ### Register the exact cTrader redirect URI
 
