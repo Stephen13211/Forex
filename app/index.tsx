@@ -176,12 +176,40 @@ function MarketDataPanel(){
  </Card>;
 }
 
+
+function TradeHistoryPanel(){
+ const [rows,setRows]=useState<any[]>([]),[busy,setBusy]=useState(false),[message,setMessage]=useState("Loading broker trade history…");
+ async function load(){
+  setBusy(true);
+  const {data:{user}}=await supabase.auth.getUser();
+  if(!user){setBusy(false);setMessage("Sign in to view your private trade history.");return;}
+  const {data,error}=await supabase.from("trade_history").select("id,symbol,side,volume,entry_price,exit_price,stop_loss,take_profit,profit,commission,swap,account_currency,cash_risk_amount,r_multiple,strategy_score,status,opened_at,closed_at").eq("user_id",user.id).order("opened_at",{ascending:false}).limit(50);
+  setBusy(false);
+  if(error){setMessage("Trade history could not be loaded: "+error.message);return;}
+  setRows(data??[]);setMessage(data?.length?"Showing the latest "+data.length+" recorded trades.":"No broker trades have been recorded yet.");
+ }
+ useEffect(()=>{void load();},[]);
+ return <Card><Heading>Broker trade history</Heading>
+  <Pressable disabled={busy} onPress={()=>void load()} style={[s.authButton,{backgroundColor:"#252B36"},busy&&{opacity:.5}]}><Text style={[s.authButtonText,{color:GOLD}]}>{busy?"LOADING…":"REFRESH TRADE HISTORY"}</Text></Pressable>
+  <Text style={s.authMessage}>{message}</Text>
+  {rows.map(row=><View key={row.id} style={{paddingVertical:12,borderTopWidth:1,borderColor:"#282F3B"}}>
+   <Row label={row.symbol+" · "+String(row.side).toUpperCase()} value={String(row.status).toUpperCase()}/>
+   <Row label="Volume" value={row.volume==null?"—":String(row.volume)}/>
+   <Row label="Entry / exit" value={(row.entry_price??"—")+" / "+(row.exit_price??"—")}/>
+   <Row label="Stop / target" value={(row.stop_loss??"—")+" / "+(row.take_profit??"—")}/>
+   <Row label="Profit" value={row.profit==null?"—":String(row.profit)+(row.account_currency?" "+row.account_currency:"")}/>
+   <Row label="Cash risk / R multiple" value={(row.cash_risk_amount??"—")+" / "+(row.r_multiple??"—")}/>
+   <Text style={s.muted}>{row.opened_at?new Date(row.opened_at).toLocaleString():"Opening time unavailable"}</Text>
+  </View>)}
+ </Card>;
+}
+
 function Screen({tab}:{tab:Tab}){
  if(tab==="Home")return <><Card><Text style={s.kicker}>ACCOUNT BALANCE · DERIV cTrader</Text><Text style={s.big}>UNKNOWN</Text><Text style={s.muted}>Connect a verified demo account to load balance and equity. No sample account values are presented as real.</Text><View style={s.pills}><Text style={s.pill}>DEMO MODE</Text><Text style={[s.pill,{borderColor:"#B97824",color:"#F2A23A"}]}>cTrader NOT CONNECTED</Text><Text style={s.pill}>BOT STOPPED</Text></View></Card><View style={s.metrics}><Metric label="DAILY P/L" value="—" sub="Waiting for cTrader"/><Metric label="OPEN TRADES" value="0"/><Metric label="TRADES TODAY" value="0"/></View><Card><Heading>Gold Hunter AI</Heading><Text style={s.body}>Your multi-timeframe XAUUSD strategy workspace. Trading is disabled until the Deriv demo bridge is connected and verified.</Text><Row label="Market" value="XAUUSD"/><Row label="Trend framework" value="H4 + H1"/><Row label="Setup timeframe" value="M15"/><Row label="Entry confirmation" value="M5"/><Row label="Execution" value="DEMO ONLY"/></Card><Card><Heading>System safety</Heading><Row label="Risk per trade" value="NOT CONFIGURED"/><Row label="Daily loss limit" value="NOT CONFIGURED"/><Row label="Weekly loss limit" value="NOT CONFIGURED"/><Row label="Daily trade cap" value="NONE"/><Row label="Maximum open positions" value="1"/></Card></>;
  if(tab==="Chart")return <MarketDataPanel/>;
  if(tab==="Strategy")return <><Card><Heading>Gold Hunter strategy</Heading><Text style={s.body}>Strict trend-following pullback strategy. H4 and H1 must agree; disagreement, unclear structure or stale data means NO TRADE.</Text><Row label="H4" value="Primary direction"/><Row label="H1" value="Must confirm H4"/><Row label="M15" value="Pullback + structure break"/><Row label="M5" value="Entry confirmation"/><Row label="EMA filters" value="50 / 200"/><Row label="Minimum reward:risk" value="1 : 2"/><Row label="Quality threshold" value="100 / 100"/></Card><Card><Heading>Setup checklist</Heading>{["H4 and H1 structure agree (HH/HL for buys; LH/LL for sells)","Price pulls back into a valid H1/M15 support or resistance zone","EMA50 / EMA200 and trendline confluence support direction","Liquidity sweep is confirmed, not assumed","M15 candle closes through the relevant structure level","M5 confirms direction or a retest before entry","There is clear room to target and at least 2R after costs","Spread, ATR, session, news and risk gates all pass"].map((x,i)=><Row key={i} label={x} value="REQUIRED"/>)} </Card><Card><Heading>Quality scoring · all mandatory gates (100/100)</Heading><Row label="H4/H1 alignment" value="20"/><Row label="H1 market structure" value="10"/><Row label="M15 pullback into zone" value="15"/><Row label="Trendline confluence" value="10"/><Row label="Liquidity sweep" value="10"/><Row label="M15 structure break" value="15"/><Row label="M5 confirmation" value="10"/><Row label="R:R and target room" value="10"/><Text style={s.muted}>Score is a ranking heuristic, not a probability of winning. Mandatory safety gates cannot be overridden by a high score.</Text></Card><Card><Heading>Automatic filters</Heading>{["London and New York session windows","Maximum spread and abnormal spread expansion","ATR volatility range","Avoid sideways or overextended markets","Previous day/week highs and lows; Asian range","High-impact USD news blackout","No stale prices or duplicate orders"].map((x,i)=><Row key={i} label={x} value="PLANNED"/>)} </Card></>;
  if(tab==="Risk")return <RiskSettingsPanel/>;
- if(tab==="History")return <Card><Heading>Trade history</Heading><Text style={s.body}>No broker trades received yet. Closed positions, entry/exit prices, risk in account currency, R-multiple, costs, strategy score and reason codes will appear here after a verified demo connection.</Text><Text style={s.pill}>NO TRADE DATA CONNECTED</Text></Card>;
+ if(tab==="History")return <TradeHistoryPanel/>;
  if(tab==="cTrader")return <><CTraderConnectPanel/><Card><Heading>Demo connection and execution status</Heading><Row label="Broker environment" value="DERIV DEMO ONLY"/><Row label="OAuth token storage" value="ENCRYPTED SERVER-SIDE"/><Row label="Account authentication" value="VERIFY ON DEVICE"/><Row label="XAUUSD market data" value="AVAILABLE AFTER DEPLOYMENT"/><Row label="Strategy evaluation" value="CONNECTED TO CANDLES"/><Row label="Automated order execution" value="NOT ENABLED"/><Text style={s.body}>The app now requests real broker data and reconciles open positions. Order execution remains disabled until the account contract, cash-risk conversion, protective order behaviour and loss-limit enforcement are verified. No live account is accepted.</Text></Card></>;
  return <><AuthPanel/><Card><Heading>Account & profile</Heading><Row label="Broker" value="DERIV"/><Row label="Trading environment" value="DEMO ONLY"/></Card><Card><Heading>Partner income</Heading><Text style={s.body}>Referral / introducing-broker earnings are separate from trading P/L. This section will show approved Deriv partner attribution and confirmed commission statements once an official partner account is linked. No commission is assumed or guaranteed.</Text><Row label="Partner account" value="NOT LINKED"/><Row label="Confirmed commission" value="—"/></Card><Card><Heading>Security</Heading><Text style={s.body}>Gold Hunter AI is configured to use its dedicated Supabase project for authentication and user data. cTrader OAuth and the secure server-side trading gateway are still pending. Never place service-role keys, cTrader client secrets or broker tokens in the mobile app or public repository.</Text></Card></>;
 }
