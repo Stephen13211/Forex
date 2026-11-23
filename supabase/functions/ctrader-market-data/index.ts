@@ -141,7 +141,7 @@ Deno.serve(async(req)=>{
       const exitPrice=exitWeight>0?closeDeals.reduce((sum,d)=>{
         const weight=Number(d.closePositionDetail.closedVolume??d.filledVolume??d.volume??0);
         return sum+Number(d.closePositionDetail.entryPrice??0)*weight;
-      },0)/exitWeight:null:null;
+      },0)/exitWeight:null;
       const closedAt=Math.max(...closeDeals.map(d=>Number(d.executionTimestamp??0)));
       const netProfit=grossProfit-commission-swap;
       const cashRisk=Number(local.cash_risk_amount??0);
