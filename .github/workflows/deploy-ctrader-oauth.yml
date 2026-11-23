@@ -28,6 +28,9 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Install npm dependencies for Deno checks
+        run: deno install --node-modules-dir=auto
+
       - name: Type-check cTrader Edge Functions
         run: |
           deno check supabase/functions/ctrader-oauth-start/index.ts
