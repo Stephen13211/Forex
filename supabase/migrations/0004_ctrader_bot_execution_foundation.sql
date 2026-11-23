@@ -59,12 +59,12 @@ $$;
 create or replace function public.release_ctrader_bot_lock(p_user_id uuid, p_lock_token uuid)
 returns boolean language plpgsql security definer set search_path = ''
 as $$
-declare released boolean;
+declare affected integer;
 begin
   delete from public.ctrader_bot_locks
     where user_id = p_user_id and lock_token = p_lock_token;
-  get diagnostics released = row_count;
-  return released;
+  get diagnostics affected = row_count;
+  return affected > 0;
 end;
 $$;
 
