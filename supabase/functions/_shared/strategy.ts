@@ -84,9 +84,10 @@ export function evaluateGoldSetup(input: {
   if (highs.length < 2 || lows.length < 2) { reasons.push("Not enough confirmed M15 swing structure."); return noTrade(h4,h1,"none","none"); }
   const last = m15.at(-1)!, prior = m15.at(-2)!;
   const recentHigh = highs.at(-1)!, recentLow = lows.at(-1)!;
+  const ema50 = ema(m15.map(c=>c.close),50)!;
   const pullback = direction === "buy"
-    ? last.low <= ema(m15.map(c=>c.close),50)! + a * 0.25
-    : last.high >= ema(m15.map(c=>c.close),50)! - a * 0.25;
+    ? last.low <= ema50 + a * 0.25 && last.low >= ema50 - a * 0.75
+    : last.high >= ema50 - a * 0.25 && last.high <= ema50 + a * 0.75;
   const break = direction === "buy"
     ? last.close > highs.at(-1)!.price && prior.close <= highs.at(-1)!.price
     : last.close < lows.at(-1)!.price && prior.close >= lows.at(-1)!.price;
