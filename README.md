@@ -25,10 +25,10 @@ Follow [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md) and run [supabase/setup.
 
 ## Current trading readiness — read before use
 - Broker: Deriv only. Trading mode: demo only.
-- The mobile app does not yet place or remotely control trades. cTrader Open API application approval is pending; secure OAuth/backend integration and demo execution validation remain.
+- The mobile app does not yet place or remotely control trades. cTrader Open API application is approved; secure OAuth/backend integration and demo execution validation remain.
 - The legacy MT5 EA is not the selected cTrader execution engine and has not been validated.
 - Full swing-structure/trendline/zone/sweep scoring, economic-calendar blackout, DST-aware session filtering, persistent loss state and secure remote bridge still require implementation and testing.
 - Never connect a live account or assume profitability. Validate on historical data and forward demo first.
 
-## Agreed initial demo limits
-R10 risk per trade, R30 daily loss stop, R90 weekly loss stop, max 2 entries/day, max 1 open position, stop after 2 consecutive losses and minimum 1:2 reward:risk. These amounts apply only to a ZAR account and are not yet enforced by the mobile UI. The EA must verify account currency and actual broker contract/tick/volume specifications, and skip if risk cannot be calculated safely.
+## Agreed demo safety rules
+Fixed cash risk per trade (amount to be configured in the cTrader account currency), owner-configured daily and weekly cash-loss safeguards, no arbitrary daily trade cap, max 1 open position, pause after 2 consecutive losses and minimum 1:2 reward:risk. Position size must use the actual cTrader contract/tick/volume specifications and structural stop distance; skip if broker minimum volume exceeds the cash-risk limit.
