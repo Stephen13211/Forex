@@ -63,6 +63,12 @@ Deno.serve(async(req)=>{
       const data=await market.json();
       if(!market.ok||!data.connected)throw new Error(data.error??"Market data scan failed");
       const s=data.strategy;
+      // High-impact USD calendar protection is mandatory. Market data must explicitly
+      // confirm a clear window; missing/unconfigured news data fails closed.
+      if(data.newsProtection?.status!=="clear"){
+        outcomes.push({userId,status:"blocked",reason:"High-impact USD news protection is not verified clear; no order is allowed."});
+        continue;
+      }
       if(!data.dataReady||!data.quoteFresh||!data.candlesFresh||!data.sessionOpen||!s||s.status!=="candidate"||!["buy","sell"].includes(s.direction)){
         outcomes.push({userId,status:"no_trade",reason:(s?.reasons??["Market/session/strategy gates not satisfied"]).join(" ")});continue;
       }
@@ -102,9 +108,12 @@ Deno.serve(async(req)=>{
         data.symbol.minCommission,data.symbol.preciseMinCommission,
         data.symbol.pnlConversionFeeRate
       ];
+      const commissionKnown=(data.symbol.commission!==null&&data.symbol.commission!==undefined)||
+        (data.symbol.preciseTradingCommissionRate!==null&&data.symbol.preciseTradingCommissionRate!==undefined);
+      const conversionFeeKnown=data.symbol.pnlConversionFeeRate!==null&&data.symbol.pnlConversionFeeRate!==undefined;
       const hasBrokerFees=commissionFields.some(value=>value!==null&&value!==undefined&&num(value)>0);
-      if(hasBrokerFees){
-        outcomes.push({userId,status:"blocked",reason:"The broker reports XAUUSD commission or conversion fees. The fee schedule has not yet been modelled into cash-risk sizing, so this trade is safely skipped."});
+      if(!commissionKnown||!conversionFeeKnown||hasBrokerFees){
+        outcomes.push({userId,status:"blocked",reason:"Broker commission/conversion-fee metadata is missing or reports fees that are not modelled in the cash-risk calculation. Trade safely skipped."});
         continue;
       }
       if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits==="OZ")){
