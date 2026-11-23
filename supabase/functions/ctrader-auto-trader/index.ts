@@ -41,7 +41,8 @@ async function freshToken(admin:ReturnType<typeof supabaseAdmin>,row:Record<stri
 const num=(v:unknown)=>Number(v);
 Deno.serve(async(req)=>{
   if(req.method!=="POST")return json({error:"POST required"},405);
-  if(req.headers.get("Authorization")!==`Bearer ${requiredEnv("SUPABASE_SERVICE_ROLE_KEY")}`)return json({error:"Unauthorized scheduler request"},401);
+  const schedulerSecret=requiredEnv("GOLD_HUNTER_SCHEDULER_SECRET");
+  if(req.headers.get("Authorization")!==`Bearer ${schedulerSecret}`)return json({error:"Unauthorized scheduler request"},401);
   const admin=supabaseAdmin();const outcomes:Record<string,unknown>[]=[];
   const {data:settings,error}=await admin.from("bot_settings").select("user_id,environment,bot_enabled,symbol").eq("bot_enabled",true).eq("environment","demo").eq("symbol","XAUUSD");
   if(error)return json({error:"Could not load bot settings"},500);
