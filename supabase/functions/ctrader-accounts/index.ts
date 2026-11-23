@@ -18,7 +18,7 @@ function waitForMessage(ws: WebSocket, expectedType: number, timeoutMs = 12000):
     };
     const onMessage = async (event: MessageEvent) => {
       try {
-        const raw = typeof event.data === "string" ? event.data : await event.data.text();
+        const raw = typeof event.data === "string" ? event.data : event.data instanceof Blob ? await event.data.text() : new TextDecoder().decode(event.data);
         const message = JSON.parse(raw) as CTraderMessage;
         if (message.payloadType === 2142) {
           const p = message.payload ?? {};
