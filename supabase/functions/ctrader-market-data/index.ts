@@ -77,7 +77,7 @@ Deno.serve(async(req)=>{
     const admin=supabaseAdmin();
     const internalSecret=req.headers.get("x-internal-bot-secret");
     let userId:string;
-    if(internalSecret && internalSecret===requiredEnv("BOT_CRON_SECRET")){
+    if(internalSecret && internalSecret===requiredEnv("SUPABASE_SERVICE_ROLE_KEY")){
       const body=await req.json().catch(()=>({}));
       if(typeof body.user_id!=="string")return json({error:"user_id required"},400);
       userId=body.user_id;
