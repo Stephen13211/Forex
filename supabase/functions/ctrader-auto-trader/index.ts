@@ -130,7 +130,7 @@ Deno.serve(async(req)=>{
       // cTrader volume and lotSize are both protocol cents. Price loss and estimated
       // opening + closing commission must fit inside the configured cash-risk cap.
       const sizing=sizeXauUsdVolumeWithFees({
-        cashRisk,stopDistance,entryPrice:executableEntry,minVolume,maxVolume,volumeStep:stepVolume,
+        cashRisk,stopDistance,entryPrice:Math.max(executableEntry,structuralStop),minVolume,maxVolume,volumeStep:stepVolume,
         lotSizeProtocol:lotSize,accountCurrency:brokerCurrency,quoteCurrency:brokerCurrency,
         commissionType:data.symbol.commissionType==null?null:num(data.symbol.commissionType),
         preciseTradingCommissionRate:data.symbol.preciseTradingCommissionRate==null?null:num(data.symbol.preciseTradingCommissionRate),
@@ -204,7 +204,7 @@ Deno.serve(async(req)=>{
         const sideMatches=actualSide===(s.direction==="buy"?1:2);
         const protectionValid=actualStopDistance>0&&actualTargetDistance>=actualStopDistance*2&&sideMatches;
         const actualCommission=estimateXauUsdRoundTurnCommission({
-          volumeProtocol:actualVolume,entryPrice:actualEntry,lotSizeProtocol:lotSize,
+          volumeProtocol:actualVolume,entryPrice:Math.max(actualEntry,actualStop),lotSizeProtocol:lotSize,
           accountCurrency:brokerCurrency,quoteCurrency:brokerCurrency,
           commissionType:data.symbol.commissionType==null?null:num(data.symbol.commissionType),
           preciseTradingCommissionRate:data.symbol.preciseTradingCommissionRate==null?null:num(data.symbol.preciseTradingCommissionRate),
