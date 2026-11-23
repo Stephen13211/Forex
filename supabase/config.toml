@@ -3,3 +3,6 @@ verify_jwt = true
 
 [functions.ctrader-oauth-callback]
 verify_jwt = false
+
+[functions.ctrader-accounts]
+verify_jwt = true
