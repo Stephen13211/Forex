@@ -84,15 +84,20 @@ function CTraderConnectPanel(){
 
 function RiskSettingsPanel(){
  const [risk,setRisk]=useState(""),[daily,setDaily]=useState(""),[weekly,setWeekly]=useState("");
- const [busy,setBusy]=useState(false),[message,setMessage]=useState("Set fixed cash amounts in your demo account currency. Percentage risk is not used.");
+ const [accountCurrency,setAccountCurrency]=useState("");
+ const [busy,setBusy]=useState(false),[message,setMessage]=useState("Connect your demo account to verify the deposit currency before setting cash risk.");
  const [botEnabled,setBotEnabled]=useState(false),[tradingPermission,setTradingPermission]=useState(false),[botBusy,setBotBusy]=useState(false),[botMessage,setBotMessage]=useState("Scanner status and DEMO execution permission are checked separately.");
  useEffect(()=>{let active=true;(async()=>{
   const {data:{user}}=await supabase.auth.getUser();
   if(!user){if(active)setMessage("Sign in before saving risk settings.");return;}
-  const {data,error}=await supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash,trading_enabled,max_consecutive_losses").eq("user_id",user.id).maybeSingle();
+  const {data,error}=await supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash,account_currency,trading_enabled,max_consecutive_losses").eq("user_id",user.id).maybeSingle();
+  const {data:brokerAccount}=await supabase.from("ctrader_accounts").select("account_currency,connection_status").eq("user_id",user.id).eq("environment","demo").maybeSingle();
+  const verifiedCurrency=String(brokerAccount?.account_currency??"").trim().toUpperCase();
+  if(active)setAccountCurrency(/^[A-Z]{3,8}$/.test(verifiedCurrency)?verifiedCurrency:"");
   if(!active)return;
   if(error){setMessage("Could not load risk settings: "+error.message);return;}
   if(data){setRisk(data.cash_risk_per_trade==null?"":String(data.cash_risk_per_trade));setDaily(data.daily_loss_limit_cash==null?"":String(data.daily_loss_limit_cash));setWeekly(data.weekly_loss_limit_cash==null?"":String(data.weekly_loss_limit_cash));setTradingPermission(data.trading_enabled===true); }
+  if(data?.account_currency&&verifiedCurrency&&String(data.account_currency).toUpperCase()!==verifiedCurrency&&active)setMessage("Broker deposit currency changed. Save your risk settings again in "+verifiedCurrency+".");
   const {data:botData}=await supabase.from("bot_settings").select("bot_enabled").eq("user_id",user.id).maybeSingle();
   if(active)setBotEnabled(botData?.bot_enabled===true);
  })();return()=>{active=false;};},[]);
@@ -103,13 +108,15 @@ function RiskSettingsPanel(){
   if(enabled){
    const values=[risk,daily,weekly].map(v=>Number(v));
    if(values.some((v,i)=>!Number.isFinite(v)||v<=0||![risk,daily,weekly][i].trim())){setBotBusy(false);setBotMessage("Configure all three positive cash-risk amounts before starting.");return;}
-   const {data:account,error:accountError}=await supabase.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status").eq("user_id",user.id).eq("environment","demo").eq("connection_status","connected").maybeSingle();
-   if(accountError||!account){setBotBusy(false);setBotMessage("Start blocked: connect your Deriv DEMO account first.");return;}
+   const {data:account,error:accountError}=await supabase.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status,account_currency").eq("user_id",user.id).eq("environment","demo").eq("connection_status","connected").maybeSingle();
+   const verifiedCurrency=String(account?.account_currency??"").trim().toUpperCase();
+   if(accountError||!account||!/^[A-Z]{3,8}$/.test(verifiedCurrency)){setBotBusy(false);setBotMessage("Start blocked: the Deriv DEMO deposit currency has not been verified. Refresh broker market data first.");return;}
+   if(accountCurrency!==verifiedCurrency){setAccountCurrency(verifiedCurrency);setBotBusy(false);setBotMessage("Your broker account uses "+verifiedCurrency+". Save your cash-risk amounts again in that currency before starting.");return;}
    const {data:market,error:marketError}=await supabase.functions.invoke("ctrader-market-data",{body:{}});
    if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.verified!==true||market?.newsProtection?.status==="unknown"){
     setBotBusy(false);setBotMessage("Start blocked: live broker data and a fresh, verified high-impact USD news calendar are required.");return;
    }
-   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,account_currency:verifiedCurrency,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(riskError){setBotBusy(false);setBotMessage("Could not enable risk permission: "+riskError.message);return;}
    const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(botError){await supabase.from("risk_settings").update({trading_enabled:false}).eq("user_id",user.id);setBotBusy(false);setBotMessage("Could not start the demo scanner: "+botError.message);return;}
@@ -126,17 +133,19 @@ function RiskSettingsPanel(){
   const values=[risk,daily,weekly].map(v=>Number(v));
   if(values.some((v,i)=>!Number.isFinite(v)||v<=0||![""+risk,""+daily,""+weekly][i].trim())){setMessage("Enter three valid positive cash amounts.");return;}
   if(values[1]<values[0]||values[2]<values[1]){setMessage("Daily loss limit must be at least the per-trade risk, and weekly limit must be at least the daily limit.");return;}
+  if(!/^[A-Z]{3,8}$/.test(accountCurrency)){setMessage("Connect your Deriv DEMO account and refresh broker data so the deposit currency can be verified.");return;}
   setBusy(true);setMessage("");
   const {data:{user}}=await supabase.auth.getUser();
   if(!user){setBusy(false);setMessage("Sign in before saving risk settings.");return;}
   const {error}=await supabase.from("risk_settings").upsert({
-   user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],
+   user_id:user.id,account_currency:accountCurrency,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],
    max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,updated_at:new Date().toISOString()
   },{onConflict:"user_id"});
   setBusy(false);setMessage(error?"Risk settings were not saved: "+error.message:"Fixed cash-risk settings saved. Automated trading remains disabled until the broker risk and order safeguards are verified.");
  }
  return <Card><Heading>Fixed cash-risk configuration</Heading>
-  <Text style={s.body}>These amounts are in your Deriv demo account's deposit currency. The bot will size volume down to respect your stop distance and skip trades if the minimum volume would exceed your cash-risk cap.</Text>
+  <Text style={s.body}>These amounts are in the verified Deriv demo account deposit currency, not automatically South African rand. The bot will refuse to trade if the currency is missing or does not match the XAUUSD quote currency.</Text>
+  <Row label="Verified account deposit currency" value={accountCurrency||"NOT VERIFIED"}/>
   <Text style={s.rowLabel}>Cash risk per trade</Text><TextInput value={risk} onChangeText={setRisk} keyboardType="decimal-pad" placeholder="e.g. 10.00" placeholderTextColor={MUTED} style={s.authInput}/>
   <Text style={s.rowLabel}>Daily maximum loss</Text><TextInput value={daily} onChangeText={setDaily} keyboardType="decimal-pad" placeholder="e.g. 30.00" placeholderTextColor={MUTED} style={s.authInput}/>
   <Text style={s.rowLabel}>Weekly maximum loss</Text><TextInput value={weekly} onChangeText={setWeekly} keyboardType="decimal-pad" placeholder="e.g. 90.00" placeholderTextColor={MUTED} style={s.authInput}/>
@@ -159,7 +168,7 @@ type MarketCandle = {time:number;open:number;high:number;low:number;close:number
 type MarketSnapshot = {
  connected:boolean;environment:string;accountId:string;strategy?:{direction:string;score:number;status:string;h4:string;h1:string;setup:string;confirmation:string;entry:number|null;stop:number|null;target:number|null;reasons:string[]}|null;
  symbol:{name:string;symbolId:number;digits:number|null;pipPosition:number|null;minVolume:number|null;stepVolume:number|null;maxVolume:number|null;lotSize:number|null;tradingMode:number|null};
- account:{balance:number;moneyDigits:number;leverage:number|null};quote?:{bid:number;ask:number;spread:number;timestamp:number};
+ account:{balance:number;moneyDigits:number;leverage:number|null;currency?:string};quote?:{bid:number;ask:number;spread:number;timestamp:number};
  candles:Record<string,MarketCandle[]>;candlesFresh?:boolean;quoteFresh?:boolean;sessionOpen?:boolean;openPositions?:Record<string,unknown>[];pendingOrders?:Record<string,unknown>[];receivedAt:string;dataReady:boolean;
 };
 function MarketDataPanel(){
@@ -181,7 +190,8 @@ function MarketDataPanel(){
   <Pressable disabled={busy} onPress={()=>void refresh()} style={[s.authButton,busy&&{opacity:.5}]}><Text style={s.authButtonText}>{busy?"LOADING BROKER DATA…":"REFRESH MARKET DATA"}</Text></Pressable>
   <Text style={s.authMessage}>{message}</Text>
   {snapshot?<><View style={s.pills}><Text style={s.pill}>DERIV DEMO VERIFIED</Text><Text style={s.pill}>{snapshot.symbol.name}</Text><Text style={[s.pill,{borderColor:snapshot.dataReady?"#4C9A70":"#B97824",color:snapshot.dataReady?"#71D39B":"#F2A23A"}]}>{snapshot.dataReady?"CANDLES READY":"HISTORY INCOMPLETE"}</Text></View>
-   <Row label="Account balance" value={snapshot.account.balance.toFixed(2)}/>
+   <Row label="Account balance" value={snapshot.account.balance.toFixed(2)+" "+(snapshot.account.currency??"")}/>
+   <Row label="Verified deposit currency" value={snapshot.account.currency??"NOT VERIFIED"}/>
    <Row label="Live bid" value={snapshot.quote?.bid?.toFixed(snapshot.symbol.digits??2)??"Unavailable"}/>
    <Row label="Live ask" value={snapshot.quote?.ask?.toFixed(snapshot.symbol.digits??2)??"Unavailable"}/>
    <Row label="Spread" value={snapshot.quote?.spread?.toFixed(snapshot.symbol.digits??2)??"Unavailable"}/>
