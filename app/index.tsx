@@ -85,6 +85,7 @@ function CTraderConnectPanel(){
 function RiskSettingsPanel(){
  const [risk,setRisk]=useState(""),[daily,setDaily]=useState(""),[weekly,setWeekly]=useState("");
  const [busy,setBusy]=useState(false),[message,setMessage]=useState("Set fixed cash amounts in your demo account currency. Percentage risk is not used.");
+ const [botEnabled,setBotEnabled]=useState(false),[botBusy,setBotBusy]=useState(false),[botMessage,setBotMessage]=useState("Automatic demo trading remains locked until all safety checks pass.");
  useEffect(()=>{let active=true;(async()=>{
   const {data:{user}}=await supabase.auth.getUser();
   if(!user){if(active)setMessage("Sign in before saving risk settings.");return;}
@@ -92,7 +93,35 @@ function RiskSettingsPanel(){
   if(!active)return;
   if(error){setMessage("Could not load risk settings: "+error.message);return;}
   if(data){setRisk(data.cash_risk_per_trade==null?"":String(data.cash_risk_per_trade));setDaily(data.daily_loss_limit_cash==null?"":String(data.daily_loss_limit_cash));setWeekly(data.weekly_loss_limit_cash==null?"":String(data.weekly_loss_limit_cash));}
+  const {data:botData}=await supabase.from("bot_settings").select("bot_enabled").eq("user_id",user.id).maybeSingle();
+  if(active)setBotEnabled(botData?.bot_enabled===true);
  })();return()=>{active=false;};},[]);
+ async function setAutomaticTrading(enabled:boolean){
+  setBotBusy(true);setBotMessage(enabled?"Checking demo account, market data and safety gates…":"Stopping automatic demo trading…");
+  const {data:{user}}=await supabase.auth.getUser();
+  if(!user){setBotBusy(false);setBotMessage("Sign in before changing automatic trading.");return;}
+  if(enabled){
+   const values=[risk,daily,weekly].map(v=>Number(v));
+   if(values.some((v,i)=>!Number.isFinite(v)||v<=0||![risk,daily,weekly][i].trim())){setBotBusy(false);setBotMessage("Configure all three positive cash-risk amounts before starting.");return;}
+   const {data:account,error:accountError}=await supabase.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status").eq("user_id",user.id).eq("environment","demo").eq("connection_status","connected").maybeSingle();
+   if(accountError||!account){setBotBusy(false);setBotMessage("Start blocked: connect your Deriv DEMO account first.");return;}
+   const {data:market,error:marketError}=await supabase.functions.invoke("ctrader-market-data",{body:{}});
+   if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.status!=="clear"){
+    setBotBusy(false);setBotMessage("Start blocked: live broker data and verified high-impact USD news clearance are required. The news feed is not configured yet.");return;
+   }
+   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:2,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+   if(riskError){setBotBusy(false);setBotMessage("Could not enable risk permission: "+riskError.message);return;}
+   const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+   if(botError){await supabase.from("risk_settings").update({trading_enabled:false}).eq("user_id",user.id);setBotBusy(false);setBotMessage("Could not start the demo scanner: "+botError.message);return;}
+   setBotEnabled(true);setBotMessage("Demo scanner enabled. The server will still skip every trade unless all broker, news, strategy and risk gates pass.");
+  }else{
+   const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:false,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+   const {error:riskError}=await supabase.from("risk_settings").update({trading_enabled:false,updated_at:new Date().toISOString()}).eq("user_id",user.id);
+   if(botError||riskError){setBotBusy(false);setBotMessage("Stop request needs attention: "+(botError?.message??riskError?.message));return;}
+   setBotEnabled(false);setBotMessage("Automatic demo trading stopped.");
+  }
+  setBotBusy(false);
+ }
  async function save(){
   const values=[risk,daily,weekly].map(v=>Number(v));
   if(values.some((v,i)=>!Number.isFinite(v)||v<=0||![""+risk,""+daily,""+weekly][i].trim())){setMessage("Enter three valid positive cash amounts.");return;}
@@ -113,6 +142,11 @@ function RiskSettingsPanel(){
   <Text style={s.rowLabel}>Weekly maximum loss</Text><TextInput value={weekly} onChangeText={setWeekly} keyboardType="decimal-pad" placeholder="e.g. 90.00" placeholderTextColor={MUTED} style={s.authInput}/>
   <Pressable disabled={busy} onPress={()=>void save()} style={[s.authButton,busy&&{opacity:.5}]}><Text style={s.authButtonText}>{busy?"SAVING…":"SAVE RISK SETTINGS"}</Text></Pressable>
   <Text style={s.authMessage}>{message}</Text>
+  <Heading>Automatic DEMO trading</Heading>
+  <Row label="Scanner status" value={botEnabled?"ENABLED":"STOPPED"}/>
+  <Pressable disabled={botBusy||botEnabled} onPress={()=>void setAutomaticTrading(true)} style={[s.authButton,(botBusy||botEnabled)&&{opacity:.45}]}><Text style={s.authButtonText}>{botBusy?"CHECKING…":"START DEMO SCANNER"}</Text></Pressable>
+  <Pressable disabled={botBusy||!botEnabled} onPress={()=>void setAutomaticTrading(false)} style={[s.authButton,{backgroundColor:"#252B36",marginTop:9},(botBusy||!botEnabled)&&{opacity:.45}]}><Text style={[s.authButtonText,{color:GOLD}]}>{botBusy?"PLEASE WAIT":"STOP DEMO SCANNER"}</Text></Pressable>
+  <Text style={s.authMessage}>{botMessage}</Text>
   <Row label="Maximum open positions" value="1"/>
   <Row label="Consecutive-loss pause" value="2"/>
   <Row label="Minimum reward:risk" value="2.0"/>
