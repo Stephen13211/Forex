@@ -88,16 +88,32 @@ export function evaluateGoldSetup(input: {
   const pullback = direction === "buy"
     ? last.low <= ema50 + a * 0.25 && last.low >= ema50 - a * 0.75
     : last.high >= ema50 - a * 0.25 && last.high <= ema50 + a * 0.75;
+  const trendPivots = direction === "buy" ? lows.slice(-2) : highs.slice(-2);
+  const trendline = trendPivots.length === 2
+    ? trendPivots[0].price + (trendPivots[1].price - trendPivots[0].price)
+      * (m15.length - 1 - trendPivots[0].index) / (trendPivots[1].index - trendPivots[0].index)
+    : null;
+  const trendlineConfluence = trendline !== null && (direction === "buy"
+    ? Math.abs(last.low - trendline) <= a * 0.5
+    : Math.abs(last.high - trendline) <= a * 0.5);
+  const sweepCutoff = m15.length - 7;
+  const priorLiquidityPivot = (direction === "buy" ? lows : highs).filter(p => p.index < sweepCutoff).at(-1);
+  const sweepBars = m15.slice(-5);
+  const liquiditySweep = !!priorLiquidityPivot && (direction === "buy"
+    ? sweepBars.some(c => c.low < priorLiquidityPivot.price && c.close > priorLiquidityPivot.price)
+    : sweepBars.some(c => c.high > priorLiquidityPivot.price && c.close < priorLiquidityPivot.price));
   const break = direction === "buy"
     ? last.close > highs.at(-1)!.price && prior.close <= highs.at(-1)!.price
     : last.close < lows.at(-1)!.price && prior.close >= lows.at(-1)!.price;
-  if (!pullback) { reasons.push("No qualifying M15 pullback near EMA50."); return noTrade(h4,h1,"no_pullback","waiting",45); }
-  if (!break) { reasons.push("No completed M15 close through confirmed local structure."); return noTrade(h4,h1,"pullback","waiting_for_M15_break",55); }
+  if (!pullback) { reasons.push("No qualifying M15 pullback near EMA50."); return noTrade(h4,h1,"no_pullback","waiting",40); }
+  if (!trendlineConfluence) { reasons.push("No confirmed trendline confluence at the M15 pullback."); return noTrade(h4,h1,"pullback","waiting_for_trendline",50); }
+  if (!liquiditySweep) { reasons.push("No confirmed liquidity sweep and close-back-through at a prior M15 swing."); return noTrade(h4,h1,"pullback","waiting_for_liquidity_sweep",60); }
+  if (!break) { reasons.push("No completed M15 close through confirmed local structure."); return noTrade(h4,h1,"sweep","waiting_for_M15_break",70); }
   const m5Last = m5.at(-1)!, m5Prev = m5.at(-2)!;
   const confirmed = direction === "buy"
     ? m5Last.close > m5Prev.high && m5Last.close > m5Last.open
     : m5Last.close < m5Prev.low && m5Last.close < m5Last.open;
-  if (!confirmed) { reasons.push("M5 has not confirmed the M15 break."); return noTrade(h4,h1,"M15_break","waiting_for_M5",65); }
+  if (!confirmed) { reasons.push("M5 has not confirmed the M15 break."); return noTrade(h4,h1,"M15_break","waiting_for_M5",80); }
   const entry = m5Last.close;
   const buffer = a * (input.atrBufferMultiplier ?? 0.2);
   const stop = direction === "buy" ? recentLow.price - buffer : recentHigh.price + buffer;
@@ -108,8 +124,8 @@ export function evaluateGoldSetup(input: {
   }
   const rr = Math.max(2, input.minimumRewardRisk ?? 2);
   const target = direction === "buy" ? entry + distance * rr : entry - distance * rr;
-  const score = 80;
-  reasons.push("H4/H1 direction aligned, M15 pullback and structure break present, M5 confirmation present.");
+  const score = 100;
+  reasons.push("H4/H1 direction aligned, M15 EMA pullback, trendline confluence, liquidity sweep and structure break present, M5 confirmation present.");
   reasons.push("Stop is beyond the latest confirmed M15 swing with an ATR buffer; volume must be sized to the owner's fixed cash-risk cap.");
   reasons.push("External spread, news, session, freshness, account and broker-contract gates must pass before any order.");
   return { direction, score, status:"candidate", h4,h1,setup:"pullback_and_structure_break",confirmation:"m5_close_confirmation",
