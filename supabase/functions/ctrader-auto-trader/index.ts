@@ -119,8 +119,26 @@ Deno.serve(async(req)=>{
         }}));
         const event=await eventPromise;const ep=event.payload??{};
         const execution=Number(ep.executionType??0);
-        if(execution!==3)throw new Error("Order event was not confirmed as FILLED; no success assumed");
         const position=ep.position as Record<string,unknown>|undefined;
+        if(execution!==3){
+          // FOK should prevent partial fills, but never leave a partial broker position unmanaged.
+          if(position?.positionId){
+            const tradeData=(position.tradeData??{}) as Record<string,unknown>;
+            const closeVolume=num(tradeData.volume??position.volume??0);
+            if(!(closeVolume>0))throw new Error("CRITICAL: non-filled order event included a position but no verifiable volume; manual broker inspection required");
+            const closeId=crypto.randomUUID();
+            const closePromise=waitFor(ws,2126,closeId,20000);
+            ws.send(JSON.stringify({payloadType:2111,clientMsgId:closeId,payload:{
+              ctidTraderAccountId:accountId,positionId:num(position.positionId),volume:closeVolume
+            }}));
+            await closePromise;
+            const afterClose=await ctraderRequest(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
+            const remains=((afterClose.position??[]) as Record<string,unknown>[]).some(p=>String(p.positionId)===String(position.positionId));
+            if(remains)throw new Error("CRITICAL: incomplete order fill could not be fully closed; broker inspection required");
+            throw new Error("Order was not fully filled; any partial position was closed and verified.");
+          }
+          throw new Error("Order was not confirmed fully filled; no position was recorded.");
+        }
         if(!position?.positionId)throw new Error("Broker fill event did not include a position ID");
         const verified=await ctraderRequest(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
         const opened=(verified.position??[]) as Record<string,unknown>[];
