@@ -108,6 +108,8 @@ Deno.serve(async(req)=>{
     const reconcile=await request(ws,2124,{ctidTraderAccountId:Number(accountId),returnProtectionOrders:false},2125);
     const openPositions=Array.isArray(reconcile.position)?reconcile.position:[];
     const pendingOrders=Array.isArray(reconcile.order)?reconcile.order:[];
+    const traderResponse=await request(ws,2121,{ctidTraderAccountId:Number(accountId)},2122);
+    const trader=(traderResponse.trader??{}) as Record<string,unknown>;
     // Reconcile locally recorded bot positions against broker close-deal records.
     // Loss-limit calculations must use broker-confirmed realised results, not stale local rows.
     const {data:localOpen,error:localOpenError}=await admin.from("trade_history")
@@ -152,8 +154,6 @@ Deno.serve(async(req)=>{
       }).eq("id",local.id).eq("status","open");
       if(closeUpdateError)throw new Error("Could not save broker-confirmed closed trade result.");
     }
-    const traderResponse=await request(ws,2121,{ctidTraderAccountId:Number(accountId)},2122);
-    const trader=(traderResponse.trader??{}) as Record<string,unknown>;
     const symbolsResponse=await request(ws,2114,{ctidTraderAccountId:Number(accountId),includeArchivedSymbols:false},2115);
     const symbols=Array.isArray(symbolsResponse.symbol)?symbolsResponse.symbol as Record<string,unknown>[]:[];
     const symbol=symbols.find(s=>String(s.symbolName??"").toUpperCase()==="XAUUSD")
