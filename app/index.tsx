@@ -116,7 +116,7 @@ function RiskSettingsPanel(){
    if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.verified!==true||market?.newsProtection?.status==="unknown"){
     setBotBusy(false);setBotMessage("Start blocked: live broker data and a fresh, verified high-impact USD news calendar are required.");return;
    }
-   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,account_currency:verifiedCurrency,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,account_currency:verifiedCurrency,currency_confirmed:true,risk_per_trade:values[0],cash_risk_per_trade:values[0],daily_loss_limit:values[1],daily_loss_limit_cash:values[1],weekly_loss_limit:values[2],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(riskError){setBotBusy(false);setBotMessage("Could not enable risk permission: "+riskError.message);return;}
    const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(botError){await supabase.from("risk_settings").update({trading_enabled:false}).eq("user_id",user.id);setBotBusy(false);setBotMessage("Could not start the demo scanner: "+botError.message);return;}
@@ -138,7 +138,10 @@ function RiskSettingsPanel(){
   const {data:{user}}=await supabase.auth.getUser();
   if(!user){setBusy(false);setMessage("Sign in before saving risk settings.");return;}
   const {error}=await supabase.from("risk_settings").upsert({
-   user_id:user.id,account_currency:accountCurrency,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],
+   user_id:user.id,account_currency:accountCurrency,currency_confirmed:true,
+   risk_per_trade:values[0],cash_risk_per_trade:values[0],
+   daily_loss_limit:values[1],daily_loss_limit_cash:values[1],
+   weekly_loss_limit:values[2],weekly_loss_limit_cash:values[2],
    max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,updated_at:new Date().toISOString()
   },{onConflict:"user_id"});
   setBusy(false);if(!error)setRiskCurrency(accountCurrency);setMessage(error?"Risk settings were not saved: "+error.message:(tradingPermission?"Risk settings saved. DEMO execution permission remains enabled; the server still checks every broker, news, strategy and cash-risk safeguard.":"Risk settings saved. DEMO execution permission remains locked until you explicitly start the scanner and all safeguards pass."));
