@@ -1,6 +1,12 @@
 name: Deploy cTrader OAuth Edge Functions
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+      - '.github/workflows/deploy-ctrader-oauth.yml'
   workflow_dispatch:
 
 permissions:
