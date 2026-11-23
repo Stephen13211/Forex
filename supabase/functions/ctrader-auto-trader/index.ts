@@ -88,7 +88,7 @@ Deno.serve(async(req)=>{
       }
       const lotSize=num(data.symbol.lotSize),digits=num(data.symbol.digits),minVolume=num(data.symbol.minVolume),stepVolume=num(data.symbol.stepVolume),maxVolume=num(data.symbol.maxVolume);
       const measurementUnits=String(data.symbol.measurementUnits??"").trim().toUpperCase();
-      const stopDistance=Math.abs(num(s.entry)-num(s.stop));const targetDistance=Math.abs(num(s.target)-num(s.entry));
+      const executableEntry=s.direction==="buy"?num(data.quote?.ask):num(data.quote?.bid);\n      const structuralStop=num(s.stop),structuralTarget=num(s.target);\n      const stopDistance=s.direction==="buy"?executableEntry-structuralStop:structuralStop-executableEntry;\n      const targetDistance=s.direction==="buy"?structuralTarget-executableEntry:executableEntry-structuralTarget;
       
       const cashRisk=num(risk.cash_risk_per_trade);
       if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits==="OZ")){
@@ -153,14 +153,27 @@ Deno.serve(async(req)=>{
           if(stillOpen)throw new Error("CRITICAL: broker position opened without verified protection and emergency close was not confirmed");
           throw new Error("Broker position lacked verified SL/TP; emergency close confirmed and no trade was retained");
         }
+        const actualVolume=num(((live.tradeData??{}) as Record<string,unknown>).volume??live.volume??volume);
+        const actualEntry=num(live.price??position.price);
+        const actualStop=num(live.stopLoss);
+        const actualCashRisk=Math.abs(actualEntry-actualStop)*(actualVolume/100);
+        if(!(actualVolume>0&&actualEntry>0&&actualStop>0&&Number.isFinite(actualCashRisk)&&actualCashRisk<=cashRisk+0.000001)){
+          const closeId=crypto.randomUUID();const closePromise=waitFor(ws,2126,closeId,15000);
+          ws.send(JSON.stringify({payloadType:2111,clientMsgId:closeId,payload:{ctidTraderAccountId:accountId,positionId:num(position.positionId),volume:actualVolume>0?actualVolume:volume}}));
+          await closePromise;
+          const afterClose=await ctraderRequest(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
+          const stillOpen=((afterClose.position??[]) as Record<string,unknown>[]).some(p=>String(p.positionId)===String(position.positionId));
+          if(stillOpen)throw new Error("CRITICAL: actual filled risk exceeded the cash cap and emergency close could not be verified");
+          throw new Error("Actual fill price/volume made risk exceed the cash cap; position was closed and verified.");
+        }
         const {error:historyError}=await admin.from("trade_history").insert({
           user_id:userId,ctrader_account_id:String(accountId),broker_deal_id:String(position.positionId),
           symbol:"XAUUSD",side:s.direction,volume:volume/100,entry_price:num(position.price),stop_loss:num(live.stopLoss),
-          take_profit:num(live.takeProfit),cash_risk_amount:estimatedRisk,account_currency:account.account_currency,
+          take_profit:num(live.takeProfit),cash_risk_amount:actualCashRisk,account_currency:account.account_currency,
           strategy_score:num(s.score),is_demo:true,status:"open",opened_at:new Date().toISOString()
         });
         if(historyError)throw historyError;
-        outcomes.push({userId,status:"filled",positionId:String(position.positionId),volume:volume/100,estimatedCashRisk:estimatedRisk});
+        outcomes.push({userId,status:"filled",positionId:String(position.positionId),volume:volume/100,estimatedCashRisk:actualCashRisk});
       }finally{try{ws.close(1000,"Bot scan complete");}catch{/* closed */}}
     }catch(e){
       const message=e instanceof Error?e.message:"Unknown bot execution error";
