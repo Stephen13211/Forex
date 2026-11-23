@@ -143,6 +143,7 @@ Deno.serve(async (req) => {
     const selected = eligible.find((account) => account.account_id === String(body.account_id));
     if (!selected) return json({ error: "That account is not an eligible Deriv demo account granted to this user." }, 403);
 
+    let accountCurrency: string | null = null;
     const ws = new WebSocket("wss://demo.ctraderapi.com:5036");
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Could not connect to cTrader demo gateway")), 10000);
@@ -168,6 +169,15 @@ Deno.serve(async (req) => {
         if (!(accessRights === 0 || accessRights === "FULL_ACCESS")) {
           return json({ error: "The Deriv demo account is not granted FULL_ACCESS trading rights. No account was linked.", stage: "account_permissions" });
         }
+        const depositAssetId = String(trader.depositAssetId ?? "");
+        if (!depositAssetId) return json({ error: "cTrader did not provide the demo account deposit-currency ID. No account was linked.", stage: "account_currency" });
+        const assetResult = await sendAndWait(ws, 2112, { ctidTraderAccountId: Number(selected.account_id) }, 2113);
+        const assets = Array.isArray(assetResult.payload?.asset) ? assetResult.payload.asset as Record<string, unknown>[] : [];
+        const depositAsset = assets.find(asset => String(asset.assetId ?? "") === depositAssetId);
+        accountCurrency = String(depositAsset?.name ?? "").trim().toUpperCase() || null;
+        if (!accountCurrency || !/^[A-Z]{3,8}$/.test(accountCurrency)) {
+          return json({ error: "Could not verify the Deriv demo account deposit currency from cTrader assets. No account was linked.", stage: "account_currency" });
+        }
       } catch (authError) {
         const detail = authError instanceof Error ? authError.message : "Unknown cTrader account-authentication error";
         console.error("cTrader account authentication rejected", { accountId: selected.account_id, detail });
@@ -187,6 +197,7 @@ Deno.serve(async (req) => {
       broker: "Deriv",
       ctrader_account_id: selected.account_id,
       environment: "demo",
+      account_currency: accountCurrency,
       connection_status: "connected",
       last_synced_at: new Date().toISOString(),
     }, { onConflict: "ctrader_account_id" });
