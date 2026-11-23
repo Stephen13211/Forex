@@ -92,7 +92,7 @@ Deno.serve(async(req)=>{
     const {data:account,error:accountError}=await admin.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status").eq("user_id",userId).eq("environment","demo").eq("connection_status","connected").maybeSingle();
     if(accountError)throw accountError;
     if(!account)return json({error:"No authenticated Deriv DEMO account is linked. Connect cTrader first."},409);
-    const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",user.id).maybeSingle();
+    const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",userId).maybeSingle();
     if(tokenError||!tokenRow)throw new Error("Secure cTrader authorisation token is missing. Reconnect cTrader.");
     const token=await accessToken(admin,tokenRow);
     const accountId=String(account.ctrader_account_id);
