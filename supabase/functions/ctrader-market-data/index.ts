@@ -70,6 +70,39 @@ function decodeBars(raw:unknown):Candle[]{
   })).filter(c=>[c.time,c.open,c.high,c.low,c.close].every(Number.isFinite)&&c.high>=Math.max(c.open,c.close,c.low)&&c.low<=Math.min(c.open,c.close,c.high))
     .sort((a,b)=>a.time-b.time);
 }
+
+async function getUsdNewsProtection(admin:any){
+  const unknown={verified:false,status:"unknown",reason:"USD news calendar unavailable",activeEvents:[],checkedAt:new Date().toISOString()};
+  try{
+    const {data:cached,error:cacheError}=await admin.from("news_calendar_cache")
+      .select("payload,fetched_at,provider_server_time").eq("cache_key","USD-high").maybeSingle();
+    if(cacheError)return unknown;
+    let payload=cached?.payload;
+    const age=cached?.fetched_at?Date.now()-Date.parse(String(cached.fetched_at)):Number.POSITIVE_INFINITY;
+    if(!payload||!Number.isFinite(age)||age>15*60*1000){
+      const response=await fetch("https://showmytrades.com/api/public/calendar/v1?currency=USD&impact=high&days=2&format=json",{signal:AbortSignal.timeout(10000),headers:{"Accept":"application/json"}});
+      if(!response.ok)return unknown;
+      const fresh=await response.json();
+      if(!Array.isArray(fresh?.events)||!Number.isFinite(Number(fresh?.server_time))||Number(fresh.server_time)<=0)return unknown;
+      const providerTime=Number(fresh.server_time)*1000;
+      if(Math.abs(Date.now()-providerTime)>20*60*1000)return unknown;
+      const {error:saveError}=await admin.from("news_calendar_cache").upsert({
+        cache_key:"USD-high",payload:fresh,fetched_at:new Date().toISOString(),
+        provider_server_time:new Date(providerTime).toISOString(),updated_at:new Date().toISOString()
+      },{onConflict:"cache_key"});
+      if(saveError)return unknown;
+      payload=fresh;
+    }
+    if(!Array.isArray(payload?.events)||!Number.isFinite(Number(payload?.server_time))||Math.abs(Date.now()-Number(payload.server_time)*1000)>20*60*1000)return unknown;
+    const now=Number(payload.server_time);
+    const events=payload.events.filter((event:any)=>event?.currency==="USD"&&event?.impact==="high"&&event?.status!=="cancelled");
+    if(events.some((event:any)=>!Number.isFinite(Number(event.ts))||Number(event.ts)<=0))return unknown;
+    const activeEvents=events.filter((event:any)=>Math.abs(Number(event.ts)-now)<=30*60).map((event:any)=>({
+      title:String(event.title??"High-impact USD event"),time:String(event.time??""),status:String(event.status??"scheduled")
+    }));
+    return {verified:true,status:activeEvents.length?"blocked":"clear",reason:activeEvents.length?"Within 30 minutes of high-impact USD news":"No high-impact USD event within the 30-minute blackout window",activeEvents,checkedAt:new Date().toISOString(),provider:"ShowMyTrades"};
+  }catch{return unknown;}
+}
 Deno.serve(async(req)=>{
   if(req.method!=="POST")return json({error:"POST required"},405);
   let ws:WebSocket|undefined;
@@ -193,8 +226,9 @@ Deno.serve(async(req)=>{
     if(strategy&&strategy.direction!=="none"&&!sessionOpen)strategy={...strategy,direction:"none",status:"no_trade",entry:null,stop:null,target:null,reasons:[...strategy.reasons,"Outside the London and New York trading sessions."]};
     if(strategy&&strategy.direction!=="none"&&strategy.atrM15&&ask-bid>strategy.atrM15*0.1)strategy={...strategy,direction:"none",status:"no_trade",entry:null,stop:null,target:null,reasons:[...strategy.reasons,"Current XAUUSD spread exceeds 10% of M15 ATR."]};
     if(!candlesFresh)strategy=null;
+    const newsProtection=await getUsdNewsProtection(admin);
     const result={
-      connected:true,environment:"demo",accountId,symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
+      connected:true,environment:"demo",accountId,newsProtection,symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,measurementUnits:detail.measurementUnits??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null,
         commission:detail.commission??null,commissionType:detail.commissionType??null,
