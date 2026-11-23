@@ -119,7 +119,7 @@ Deno.serve(async(req)=>{
     const balance=Number(trader.balance??0)/Math.pow(10,moneyDigits);
     const barsReady=Object.values(candles).every(c=>c.length>=220);
     const freshWindows={h4:8*60*60*1000,h1:2*60*60*1000,m15:30*60*1000,m5:10*60*1000} as const;
-    const candlesFresh=(Object.keys(candles) as (keyof typeof freshWindows)[]).every(key=>now-candles[key].at(-1)!.time<=freshWindows[key]);
+    const candlesFresh=(Object.keys(candles) as (keyof typeof freshWindows)[]).every(key=>candles[key].length>0&&now-candles[key].at(-1)!.time<=freshWindows[key]);
     const quoteFresh=now-spotTimestamp<=120000&&now>=spotTimestamp;
     const dataReady=barsReady&&candlesFresh&&quoteFresh;
     const rawStrategy=dataReady?evaluateGoldSetup({h4:candles.h4,h1:candles.h1,m15:candles.m15,m5:candles.m5}):null;
