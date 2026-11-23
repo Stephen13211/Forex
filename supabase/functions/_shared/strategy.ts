@@ -102,13 +102,13 @@ export function evaluateGoldSetup(input: {
   const liquiditySweep = !!priorLiquidityPivot && (direction === "buy"
     ? sweepBars.some(c => c.low < priorLiquidityPivot.price && c.close > priorLiquidityPivot.price)
     : sweepBars.some(c => c.high > priorLiquidityPivot.price && c.close < priorLiquidityPivot.price));
-  const break = direction === "buy"
+  const structureBreak = direction === "buy"
     ? last.close > highs.at(-1)!.price && prior.close <= highs.at(-1)!.price
     : last.close < lows.at(-1)!.price && prior.close >= lows.at(-1)!.price;
   if (!pullback) { reasons.push("No qualifying M15 pullback near EMA50."); return noTrade(h4,h1,"no_pullback","waiting",40); }
   if (!trendlineConfluence) { reasons.push("No confirmed trendline confluence at the M15 pullback."); return noTrade(h4,h1,"pullback","waiting_for_trendline",50); }
   if (!liquiditySweep) { reasons.push("No confirmed liquidity sweep and close-back-through at a prior M15 swing."); return noTrade(h4,h1,"pullback","waiting_for_liquidity_sweep",60); }
-  if (!break) { reasons.push("No completed M15 close through confirmed local structure."); return noTrade(h4,h1,"sweep","waiting_for_M15_break",70); }
+  if (!structureBreak) { reasons.push("No completed M15 close through confirmed local structure."); return noTrade(h4,h1,"sweep","waiting_for_M15_break",70); }
   const m5Last = m5.at(-1)!, m5Prev = m5.at(-2)!;
   const confirmed = direction === "buy"
     ? m5Last.close > m5Prev.high && m5Last.close > m5Last.open
