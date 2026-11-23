@@ -85,14 +85,14 @@ function CTraderConnectPanel(){
 function RiskSettingsPanel(){
  const [risk,setRisk]=useState(""),[daily,setDaily]=useState(""),[weekly,setWeekly]=useState("");
  const [busy,setBusy]=useState(false),[message,setMessage]=useState("Set fixed cash amounts in your demo account currency. Percentage risk is not used.");
- const [botEnabled,setBotEnabled]=useState(false),[botBusy,setBotBusy]=useState(false),[botMessage,setBotMessage]=useState("Automatic demo trading remains locked until all safety checks pass.");
+ const [botEnabled,setBotEnabled]=useState(false),[tradingPermission,setTradingPermission]=useState(false),[botBusy,setBotBusy]=useState(false),[botMessage,setBotMessage]=useState("Scanner status and DEMO execution permission are checked separately.");
  useEffect(()=>{let active=true;(async()=>{
   const {data:{user}}=await supabase.auth.getUser();
   if(!user){if(active)setMessage("Sign in before saving risk settings.");return;}
-  const {data,error}=await supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash").eq("user_id",user.id).maybeSingle();
+  const {data,error}=await supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash,trading_enabled,max_consecutive_losses").eq("user_id",user.id).maybeSingle();
   if(!active)return;
   if(error){setMessage("Could not load risk settings: "+error.message);return;}
-  if(data){setRisk(data.cash_risk_per_trade==null?"":String(data.cash_risk_per_trade));setDaily(data.daily_loss_limit_cash==null?"":String(data.daily_loss_limit_cash));setWeekly(data.weekly_loss_limit_cash==null?"":String(data.weekly_loss_limit_cash));}
+  if(data){setRisk(data.cash_risk_per_trade==null?"":String(data.cash_risk_per_trade));setDaily(data.daily_loss_limit_cash==null?"":String(data.daily_loss_limit_cash));setWeekly(data.weekly_loss_limit_cash==null?"":String(data.weekly_loss_limit_cash));setTradingPermission(data.trading_enabled===true); }
   const {data:botData}=await supabase.from("bot_settings").select("bot_enabled").eq("user_id",user.id).maybeSingle();
   if(active)setBotEnabled(botData?.bot_enabled===true);
  })();return()=>{active=false;};},[]);
@@ -113,12 +113,12 @@ function RiskSettingsPanel(){
    if(riskError){setBotBusy(false);setBotMessage("Could not enable risk permission: "+riskError.message);return;}
    const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(botError){await supabase.from("risk_settings").update({trading_enabled:false}).eq("user_id",user.id);setBotBusy(false);setBotMessage("Could not start the demo scanner: "+botError.message);return;}
-   setBotEnabled(true);setBotMessage("Demo scanner enabled. The server will still skip every trade unless all broker, news, strategy and risk gates pass.");
+   setBotEnabled(true);setTradingPermission(true);setBotMessage("DEMO execution permission is enabled. The server will still skip every trade unless all broker, news, strategy and risk gates pass.");
   }else{
    const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:false,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    const {error:riskError}=await supabase.from("risk_settings").update({trading_enabled:false,updated_at:new Date().toISOString()}).eq("user_id",user.id);
    if(botError||riskError){setBotBusy(false);setBotMessage("Stop request needs attention: "+(botError?.message??riskError?.message));return;}
-   setBotEnabled(false);setBotMessage("Automatic demo trading stopped.");
+   setBotEnabled(false);setTradingPermission(false);setBotMessage("Automatic demo trading stopped and DEMO execution permission is locked.");
   }
   setBotBusy(false);
  }
@@ -131,7 +131,7 @@ function RiskSettingsPanel(){
   if(!user){setBusy(false);setMessage("Sign in before saving risk settings.");return;}
   const {error}=await supabase.from("risk_settings").upsert({
    user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],
-   max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:false,updated_at:new Date().toISOString()
+   max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,updated_at:new Date().toISOString()
   },{onConflict:"user_id"});
   setBusy(false);setMessage(error?"Risk settings were not saved: "+error.message:"Fixed cash-risk settings saved. Automated trading remains disabled until the broker risk and order safeguards are verified.");
  }
@@ -151,7 +151,7 @@ function RiskSettingsPanel(){
   <Row label="Consecutive-loss pause" value="3"/>
   <Row label="Minimum reward:risk" value="2.0"/>
   <Row label="Daily trade cap" value="NONE"/>
-  <Row label="Trading permission" value="LOCKED OFF"/>
+  <Row label="Trading permission" value={tradingPermission?"ENABLED · DEMO":"LOCKED OFF"}/>
  </Card>;
 }
 
