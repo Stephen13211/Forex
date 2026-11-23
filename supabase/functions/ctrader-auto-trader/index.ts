@@ -94,6 +94,19 @@ Deno.serve(async(req)=>{
       const targetDistance=s.direction==="buy"?structuralTarget-executableEntry:executableEntry-structuralTarget;
       
       const cashRisk=num(risk.cash_risk_per_trade);
+      // Commission must be included in the fixed cash-risk cap. Until the broker's
+      // commission schedule is explicitly zero or a supported calculation is added,
+      // fail closed rather than silently exceeding the user's risk budget.
+      const commissionFields=[
+        data.symbol.commission,data.symbol.preciseTradingCommissionRate,
+        data.symbol.minCommission,data.symbol.preciseMinCommission,
+        data.symbol.pnlConversionFeeRate
+      ];
+      const hasBrokerFees=commissionFields.some(value=>value!==null&&value!==undefined&&num(value)>0);
+      if(hasBrokerFees){
+        outcomes.push({userId,status:"blocked",reason:"The broker reports XAUUSD commission or conversion fees. The fee schedule has not yet been modelled into cash-risk sizing, so this trade is safely skipped."});
+        continue;
+      }
       if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits==="OZ")){
         outcomes.push({userId,status:"blocked",reason:"Broker contract or structural stop/target data is invalid"});continue;
       }
