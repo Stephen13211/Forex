@@ -9,6 +9,10 @@ on:
       - '.github/workflows/deploy-ctrader-oauth.yml'
   workflow_dispatch:
 
+concurrency:
+  group: gold-hunter-backend-deploy
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
