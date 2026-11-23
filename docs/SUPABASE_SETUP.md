@@ -41,11 +41,12 @@ The `ctrader_accounts` table stores safe account metadata only. OAuth token pers
 This repository now contains the first server-side OAuth layer:
 - `ctrader-oauth-start` requires a signed-in Supabase user and creates a short-lived, one-use OAuth state.
 - `ctrader-oauth-callback` exchanges the cTrader authorization code on the server and stores AES-GCM encrypted access/refresh tokens in locked-down tables.
+- `ctrader-accounts` uses the cTrader DEMO JSON WebSocket endpoint to list only accounts explicitly marked as demo and whose broker title identifies Deriv. It can authenticate the selected account and store safe account metadata.
 - OAuth token tables are in the `public` schema only because the Supabase Data API is used by the Edge Function; RLS is enabled and all table privileges are revoked from `anon`, `authenticated` and `public`. Only `service_role` can access them. The encryption key and cTrader client secret are server secrets, not database values.
 
 ### Apply the new migration
 
-Run the complete contents of `supabase/migrations/0002_ctrader_oauth_private.sql` in the Supabase SQL Editor. Then run `supabase/migrations/0003_restore_public_schema_usage.sql` to restore normal app access to the public schema. The OAuth token tables remain inaccessible to anon/authenticated users because their table-level privileges are still revoked. Do not re-run the original setup script just for this step.
+Run the complete contents of `supabase/migrations/0002_ctrader_oauth_private.sql` in the Supabase SQL Editor if you have not already done so. Then run `supabase/migrations/0003_restore_public_schema_usage.sql` to restore normal app access to the public schema. The OAuth token tables remain inaccessible to anon/authenticated users because their table-level privileges are still revoked. Do not re-run the original setup script just for this step.
 
 ### Register the exact cTrader redirect URI
 
@@ -88,7 +89,7 @@ The callback is configured with JWT verification disabled because cTrader redire
 
 ### What this does not finish yet
 
-This is only the OAuth credential handshake and secure token storage. It does **not** yet retrieve the real Deriv cTrader account list, subscribe to XAUUSD prices, run the strategy, size orders, place orders, or monitor broker-side stop-losses. Those require the next cTrader Open API gateway/worker implementation and demo testing. Do not turn on trading or connect a live account.
+The OAuth handshake, encrypted token storage, Deriv DEMO account discovery, and selected-account authentication are implemented in the repository. They still require deployment and a real end-to-end test against the user's Deriv cTrader DEMO account. This does **not** subscribe to persistent XAUUSD prices, run the strategy, size orders, place orders, or monitor broker-side stop-losses. Those require a persistent cTrader gateway/worker and demo testing. Do not turn on trading or connect a live account.
 
 ## 6. Risk behavior
 
