@@ -108,6 +108,50 @@ Deno.serve(async(req)=>{
     const reconcile=await request(ws,2124,{ctidTraderAccountId:Number(accountId),returnProtectionOrders:false},2125);
     const openPositions=Array.isArray(reconcile.position)?reconcile.position:[];
     const pendingOrders=Array.isArray(reconcile.order)?reconcile.order:[];
+    // Reconcile locally recorded bot positions against broker close-deal records.
+    // Loss-limit calculations must use broker-confirmed realised results, not stale local rows.
+    const {data:localOpen,error:localOpenError}=await admin.from("trade_history")
+      .select("id,broker_deal_id,volume,opened_at,cash_risk_amount")
+      .eq("user_id",userId).eq("ctrader_account_id",accountId).eq("is_demo",true).eq("status","open");
+    if(localOpenError)throw new Error("Could not load open demo trade records for broker reconciliation.");
+    for(const local of localOpen??[]){
+      const positionId=String(local.broker_deal_id??"");
+      if(!positionId||openPositions.some((p:any)=>String(p.positionId)===positionId))continue;
+      const openedAt=Date.parse(String(local.opened_at??""));
+      if(!Number.isFinite(openedAt))continue;
+      const dealResponse=await request(ws,2179,{
+        ctidTraderAccountId:Number(accountId),positionId:Number(positionId),
+        fromTimestamp:Math.max(0,openedAt-60000),toTimestamp:Date.now()
+      },2180);
+      const deals=Array.isArray(dealResponse.deal)?dealResponse.deal as Record<string,any>[]:[];
+      const closeDeals=deals.filter(d=>d.closePositionDetail&&Number(d.dealStatus)===2);
+      if(!closeDeals.length)continue;
+      const closedVolume=closeDeals.reduce((sum,d)=>sum+Number(d.closePositionDetail.closedVolume??d.filledVolume??d.volume??0),0);
+      const expectedVolume=Number(local.volume)*100;
+      if(!(expectedVolume>0)||closedVolume+0.0001<expectedVolume)continue;
+      const moneyAmount=(value:unknown,digits:unknown)=>Number(value??0)/Math.pow(10,Number(digits??trader.moneyDigits??2));
+      const grossProfit=closeDeals.reduce((sum,d)=>sum+moneyAmount(d.closePositionDetail.grossProfit,d.closePositionDetail.moneyDigits??d.moneyDigits),0);
+      const swap=closeDeals.reduce((sum,d)=>sum+Math.abs(moneyAmount(d.closePositionDetail.swap,d.closePositionDetail.moneyDigits??d.moneyDigits)),0);
+      const commission=deals.reduce((sum,d)=>{
+        const detail=d.closePositionDetail as Record<string,unknown>|undefined;
+        const amount=detail?.commission??d.commission??0;
+        return sum+Math.abs(moneyAmount(amount,detail?.moneyDigits??d.moneyDigits));
+      },0);
+      const exitWeight=closeDeals.reduce((sum,d)=>sum+Number(d.closePositionDetail.closedVolume??d.filledVolume??d.volume??0),0);
+      const exitPrice=exitWeight>0?closeDeals.reduce((sum,d)=>{
+        const weight=Number(d.closePositionDetail.closedVolume??d.filledVolume??d.volume??0);
+        return sum+Number(d.closePositionDetail.entryPrice??0)*weight;
+      },0)/exitWeight:null:null;
+      const closedAt=Math.max(...closeDeals.map(d=>Number(d.executionTimestamp??0)));
+      const netProfit=grossProfit-commission-swap;
+      const cashRisk=Number(local.cash_risk_amount??0);
+      const {error:closeUpdateError}=await admin.from("trade_history").update({
+        status:"closed",profit:grossProfit,commission,swap,exit_price:exitPrice,
+        closed_at:closedAt>0?new Date(closedAt).toISOString():new Date().toISOString(),
+        r_multiple:cashRisk>0?netProfit/cashRisk:null
+      }).eq("id",local.id).eq("status","open");
+      if(closeUpdateError)throw new Error("Could not save broker-confirmed closed trade result.");
+    }
     const traderResponse=await request(ws,2121,{ctidTraderAccountId:Number(accountId)},2122);
     const trader=(traderResponse.trader??{}) as Record<string,unknown>;
     const symbolsResponse=await request(ws,2114,{ctidTraderAccountId:Number(accountId),includeArchivedSymbols:false},2115);
