@@ -28,9 +28,6 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Install project dependencies for Deno npm resolution
-        run: npm ci
-
       - name: Type-check cTrader Edge Functions
         run: |
           deno check supabase/functions/ctrader-oauth-start/index.ts
@@ -57,14 +54,12 @@ jobs:
       - name: Deploy cTrader OAuth callback function
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          npx --yes supabase@latest functions deploy ctrader-oauth-callback --project-ref onrajhrabqtotiedgsxh --yes
+        run: npx --yes supabase@latest functions deploy ctrader-oauth-callback --project-ref onrajhrabqtotiedgsxh --yes
 
       - name: Deploy authenticated cTrader account discovery function
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          npx --yes supabase@latest functions deploy ctrader-accounts --project-ref onrajhrabqtotiedgsxh --yes
+        run: npx --yes supabase@latest functions deploy ctrader-accounts --project-ref onrajhrabqtotiedgsxh --yes
 
       - name: Deploy authenticated cTrader market data function
         env:
