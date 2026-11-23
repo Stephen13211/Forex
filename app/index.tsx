@@ -106,8 +106,8 @@ function RiskSettingsPanel(){
    const {data:account,error:accountError}=await supabase.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status").eq("user_id",user.id).eq("environment","demo").eq("connection_status","connected").maybeSingle();
    if(accountError||!account){setBotBusy(false);setBotMessage("Start blocked: connect your Deriv DEMO account first.");return;}
    const {data:market,error:marketError}=await supabase.functions.invoke("ctrader-market-data",{body:{}});
-   if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.status!=="clear"){
-    setBotBusy(false);setBotMessage("Start blocked: live broker data and verified high-impact USD news clearance are required. The news feed is not configured yet.");return;
+   if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.verified!==true||market?.newsProtection?.status==="unknown"){
+    setBotBusy(false);setBotMessage("Start blocked: live broker data and a fresh, verified high-impact USD news calendar are required.");return;
    }
    const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:2,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(riskError){setBotBusy(false);setBotMessage("Could not enable risk permission: "+riskError.message);return;}
