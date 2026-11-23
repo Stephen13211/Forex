@@ -126,7 +126,7 @@ type MarketSnapshot = {
  connected:boolean;environment:string;accountId:string;strategy?:{direction:string;score:number;status:string;h4:string;h1:string;setup:string;confirmation:string;entry:number|null;stop:number|null;target:number|null;reasons:string[]}|null;
  symbol:{name:string;symbolId:number;digits:number|null;pipPosition:number|null;minVolume:number|null;stepVolume:number|null;maxVolume:number|null;lotSize:number|null;tradingMode:number|null};
  account:{balance:number;moneyDigits:number;leverage:number|null};
- candles:Record<string,MarketCandle[]>;receivedAt:string;dataReady:boolean;
+ candles:Record<string,MarketCandle[]>;openPositions?:Record<string,unknown>[];pendingOrders?:Record<string,unknown>[];receivedAt:string;dataReady:boolean;
 };
 function MarketDataPanel(){
  const [snapshot,setSnapshot]=useState<MarketSnapshot|null>(null);
@@ -148,6 +148,8 @@ function MarketDataPanel(){
   <Text style={s.authMessage}>{message}</Text>
   {snapshot?<><View style={s.pills}><Text style={s.pill}>DERIV DEMO VERIFIED</Text><Text style={s.pill}>{snapshot.symbol.name}</Text><Text style={[s.pill,{borderColor:snapshot.dataReady?"#4C9A70":"#B97824",color:snapshot.dataReady?"#71D39B":"#F2A23A"}]}>{snapshot.dataReady?"CANDLES READY":"HISTORY INCOMPLETE"}</Text></View>
    <Row label="Account balance" value={snapshot.account.balance.toFixed(2)}/>
+   <Row label="Broker open positions" value={String(snapshot.openPositions?.length??0)}/>
+   <Row label="Broker pending orders" value={String(snapshot.pendingOrders?.length??0)}/>
    <Row label="cTrader account ID" value={snapshot.accountId}/>
    <Row label="Symbol ID" value={String(snapshot.symbol.symbolId)}/>
    <Row label="Symbol digits" value={String(snapshot.symbol.digits??"Unknown")}/>
