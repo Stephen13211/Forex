@@ -84,7 +84,7 @@ function CTraderConnectPanel(){
 
 function RiskSettingsPanel(){
  const [risk,setRisk]=useState(""),[daily,setDaily]=useState(""),[weekly,setWeekly]=useState("");
- const [accountCurrency,setAccountCurrency]=useState("");
+ const [accountCurrency,setAccountCurrency]=useState(""),[riskCurrency,setRiskCurrency]=useState("");
  const [busy,setBusy]=useState(false),[message,setMessage]=useState("Connect your demo account to verify the deposit currency before setting cash risk.");
  const [botEnabled,setBotEnabled]=useState(false),[tradingPermission,setTradingPermission]=useState(false),[botBusy,setBotBusy]=useState(false),[botMessage,setBotMessage]=useState("Scanner status and DEMO execution permission are checked separately.");
  useEffect(()=>{let active=true;(async()=>{
@@ -96,7 +96,7 @@ function RiskSettingsPanel(){
   if(active)setAccountCurrency(/^[A-Z]{3,8}$/.test(verifiedCurrency)?verifiedCurrency:"");
   if(!active)return;
   if(error){setMessage("Could not load risk settings: "+error.message);return;}
-  if(data){setRisk(data.cash_risk_per_trade==null?"":String(data.cash_risk_per_trade));setDaily(data.daily_loss_limit_cash==null?"":String(data.daily_loss_limit_cash));setWeekly(data.weekly_loss_limit_cash==null?"":String(data.weekly_loss_limit_cash));setTradingPermission(data.trading_enabled===true); }
+  if(data){setRisk(data.cash_risk_per_trade==null?"":String(data.cash_risk_per_trade));setDaily(data.daily_loss_limit_cash==null?"":String(data.daily_loss_limit_cash));setWeekly(data.weekly_loss_limit_cash==null?"":String(data.weekly_loss_limit_cash));setTradingPermission(data.trading_enabled===true);setRiskCurrency(String(data.account_currency??"").trim().toUpperCase()); }
   if(data?.account_currency&&verifiedCurrency&&String(data.account_currency).toUpperCase()!==verifiedCurrency&&active)setMessage("Broker deposit currency changed. Save your risk settings again in "+verifiedCurrency+".");
   const {data:botData}=await supabase.from("bot_settings").select("bot_enabled").eq("user_id",user.id).maybeSingle();
   if(active)setBotEnabled(botData?.bot_enabled===true);
@@ -111,7 +111,7 @@ function RiskSettingsPanel(){
    const {data:account,error:accountError}=await supabase.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status,account_currency").eq("user_id",user.id).eq("environment","demo").eq("connection_status","connected").maybeSingle();
    const verifiedCurrency=String(account?.account_currency??"").trim().toUpperCase();
    if(accountError||!account||!/^[A-Z]{3,8}$/.test(verifiedCurrency)){setBotBusy(false);setBotMessage("Start blocked: the Deriv DEMO deposit currency has not been verified. Refresh broker market data first.");return;}
-   if(accountCurrency!==verifiedCurrency){setAccountCurrency(verifiedCurrency);setBotBusy(false);setBotMessage("Your broker account uses "+verifiedCurrency+". Save your cash-risk amounts again in that currency before starting.");return;}
+   if(riskCurrency!==verifiedCurrency){setAccountCurrency(verifiedCurrency);setBotBusy(false);setBotMessage("Your risk settings are not confirmed in "+verifiedCurrency+". Press SAVE RISK SETTINGS before starting.");return;}
    const {data:market,error:marketError}=await supabase.functions.invoke("ctrader-market-data",{body:{}});
    if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.verified!==true||market?.newsProtection?.status==="unknown"){
     setBotBusy(false);setBotMessage("Start blocked: live broker data and a fresh, verified high-impact USD news calendar are required.");return;
@@ -141,7 +141,7 @@ function RiskSettingsPanel(){
    user_id:user.id,account_currency:accountCurrency,cash_risk_per_trade:values[0],daily_loss_limit_cash:values[1],weekly_loss_limit_cash:values[2],
    max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,updated_at:new Date().toISOString()
   },{onConflict:"user_id"});
-  setBusy(false);setMessage(error?"Risk settings were not saved: "+error.message:(tradingPermission?"Risk settings saved. DEMO execution permission remains enabled; the server still checks every broker, news, strategy and cash-risk safeguard.":"Risk settings saved. DEMO execution permission remains locked until you explicitly start the scanner and all safeguards pass."));
+  setBusy(false);if(!error)setRiskCurrency(accountCurrency);setMessage(error?"Risk settings were not saved: "+error.message:(tradingPermission?"Risk settings saved. DEMO execution permission remains enabled; the server still checks every broker, news, strategy and cash-risk safeguard.":"Risk settings saved. DEMO execution permission remains locked until you explicitly start the scanner and all safeguards pass."));
  }
  return <Card><Heading>Fixed cash-risk configuration</Heading>
   <Text style={s.body}>These amounts are in the verified Deriv demo account deposit currency, not automatically South African rand. The bot will refuse to trade if the currency is missing or does not match the XAUUSD quote currency.</Text>
