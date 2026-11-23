@@ -126,7 +126,7 @@ type MarketSnapshot = {
  connected:boolean;environment:string;accountId:string;strategy?:{direction:string;score:number;status:string;h4:string;h1:string;setup:string;confirmation:string;entry:number|null;stop:number|null;target:number|null;reasons:string[]}|null;
  symbol:{name:string;symbolId:number;digits:number|null;pipPosition:number|null;minVolume:number|null;stepVolume:number|null;maxVolume:number|null;lotSize:number|null;tradingMode:number|null};
  account:{balance:number;moneyDigits:number;leverage:number|null};quote?:{bid:number;ask:number;spread:number;timestamp:number};
- candles:Record<string,MarketCandle[]>;openPositions?:Record<string,unknown>[];pendingOrders?:Record<string,unknown>[];receivedAt:string;dataReady:boolean;
+ candles:Record<string,MarketCandle[]>;candlesFresh?:boolean;quoteFresh?:boolean;openPositions?:Record<string,unknown>[];pendingOrders?:Record<string,unknown>[];receivedAt:string;dataReady:boolean;
 };
 function MarketDataPanel(){
  const [snapshot,setSnapshot]=useState<MarketSnapshot|null>(null);
@@ -138,7 +138,7 @@ function MarketDataPanel(){
   if(error){setMessage("Market data request failed: "+await getFunctionErrorMessage(error));return;}
   if(data?.error){setMessage(String(data.error));return;}
   setSnapshot(data as MarketSnapshot);
-  setMessage(data.dataReady?"Broker data received. Candle history is ready for strategy evaluation.":"Broker connection succeeded, but there are not yet enough candles for the strategy. No trade can be opened.");
+  setMessage(data.dataReady?"Broker data received. Fresh candle history and quote are ready for strategy evaluation.":`Data is incomplete or stale (candles fresh: ${String(data.candlesFresh)}, quote fresh: ${String(data.quoteFresh)}). No trade can be opened.`);
  }
  useEffect(()=>{void refresh();const interval=setInterval(()=>void refresh(),60000);return()=>clearInterval(interval);},[]);
  const last=(key:string)=>snapshot?.candles?.[key]?.at(-1);
