@@ -83,7 +83,7 @@ function CTraderConnectPanel(){
 
 type MarketCandle = {time:number;open:number;high:number;low:number;close:number;volume?:number};
 type MarketSnapshot = {
- connected:boolean;environment:string;accountId:string;
+ connected:boolean;environment:string;accountId:string;strategy?:{direction:string;score:number;status:string;h4:string;h1:string;setup:string;confirmation:string;entry:number|null;stop:number|null;target:number|null;reasons:string[]}|null;
  symbol:{name:string;symbolId:number;digits:number|null;pipPosition:number|null;minVolume:number|null;stepVolume:number|null;maxVolume:number|null;lotSize:number|null;tradingMode:number|null};
  account:{balance:number;moneyDigits:number;leverage:number|null};
  candles:Record<string,MarketCandle[]>;receivedAt:string;dataReady:boolean;
@@ -117,6 +117,14 @@ function MarketDataPanel(){
    <Row label="Received" value={new Date(snapshot.receivedAt).toLocaleTimeString()}/>
    <Heading>Latest completed candle closes</Heading>
    {(["h4","h1","m15","m5"] as const).map(key=><Row key={key} label={key.toUpperCase()+" · "+(snapshot.candles[key]?.length??0)+" candles"} value={last(key)?.close?.toFixed(snapshot.symbol.digits??2)??"Unavailable"}/>)}
+   <Heading>Strategy evaluation</Heading>
+   <Row label="H4 trend" value={snapshot.strategy?.h4??"NOT READY"}/>
+   <Row label="H1 trend" value={snapshot.strategy?.h1??"NOT READY"}/>
+   <Row label="Signal" value={snapshot.strategy?.direction?.toUpperCase()??"NO TRADE"}/>
+   <Row label="Setup status" value={snapshot.strategy?.status?.toUpperCase()??"WAITING"}/>
+   <Row label="Signal score" value={snapshot.strategy?String(snapshot.strategy.score)+"/100":"—"}/>
+   {snapshot.strategy?.entry!=null?<><Row label="Proposed entry" value={snapshot.strategy.entry.toFixed(snapshot.symbol.digits??2)}/><Row label="Structural stop" value={snapshot.strategy.stop?.toFixed(snapshot.symbol.digits??2)??"—"}/><Row label="2R target" value={snapshot.strategy.target?.toFixed(snapshot.symbol.digits??2)??"—"}/></>:null}
+   {snapshot.strategy?.reasons?.map((reason,i)=><Text key={i} style={s.muted}>• {reason}</Text>)}
   </>:null}
   <Text style={[s.muted,{marginTop:12}]}>Market data is retrieved on demand. Automatic trading is still locked until risk settings, live execution protections and the complete demo order test pass.</Text>
  </Card>;
