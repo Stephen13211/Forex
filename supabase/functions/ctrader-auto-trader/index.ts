@@ -75,18 +75,24 @@ Deno.serve(async(req)=>{
       }
       if((data.openPositions?.length??0)>0||(data.pendingOrders?.length??0)>0){outcomes.push({userId,status:"blocked",reason:"Existing broker position or pending order; one-position limit"});continue;}
       const now=new Date();
-      const dayStart=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate())).toISOString();
-      const weekStart=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()-((now.getUTCDay()+6)%7))).toISOString();
+      // Daily/weekly risk periods follow the user's configured South African timezone.
+      const johannesburgNow=new Date(now.getTime()+2*60*60*1000);
+      const localMidnightUtc=Date.UTC(johannesburgNow.getUTCFullYear(),johannesburgNow.getUTCMonth(),johannesburgNow.getUTCDate())-2*60*60*1000;
+      const dayStart=new Date(localMidnightUtc).toISOString();
+      const weekday=(johannesburgNow.getUTCDay()+6)%7;
+      const weekStart=new Date(localMidnightUtc-weekday*24*60*60*1000).toISOString();
       const {data:daily,error:dailyError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",dayStart);
       const {data:weekly,error:weeklyError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",weekStart);
-      const {data:lastClosed,error:lastError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").order("closed_at",{ascending:false}).limit(2);
+      const {data:lastClosed,error:lastError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",dayStart).order("closed_at",{ascending:false}).limit(3);
       if(dailyError||weeklyError||lastError)throw new Error("Could not verify daily/weekly loss limits and consecutive losses");
       const net=(t:Record<string,unknown>)=>num(t.profit??0)-Math.abs(num(t.commission??0))-Math.abs(num(t.swap??0));
       const dailyLoss=Math.max(0,-(daily??[]).reduce((a,t)=>a+net(t),0));
       const weeklyLoss=Math.max(0,-(weekly??[]).reduce((a,t)=>a+net(t),0));
-      const consecutiveLosses=(lastClosed??[]).length>=2&&(lastClosed??[]).every(t=>net(t)<0)?2:0;
-      if(dailyLoss>=num(risk.daily_loss_limit_cash)||weeklyLoss>=num(risk.weekly_loss_limit_cash)||consecutiveLosses>=2){
-        outcomes.push({userId,status:"blocked",reason:"Daily/weekly cash loss limit reached or two consecutive losing trades; bot paused"});continue;
+      // Pause only after three consecutive losing trades closed during today's
+      // South African trading day. A win resets the streak; a new day starts fresh.
+      const consecutiveLosses=(lastClosed??[]).length>=3&&(lastClosed??[]).every(t=>net(t)<0)?3:0;
+      if(dailyLoss>=num(risk.daily_loss_limit_cash)||weeklyLoss>=num(risk.weekly_loss_limit_cash)||consecutiveLosses>=3){
+        outcomes.push({userId,status:"blocked",reason:consecutiveLosses>=3?"Three consecutive losing trades today; trading paused until the next South African day.":"Daily/weekly cash loss limit reached; bot paused"});continue;
       }
       // XAUUSD is quoted in USD. We only size automatically when the broker confirms
       // the account deposit asset is the same USD quote asset. Never guess FX conversion.
