@@ -2,39 +2,50 @@
 
 Project URL: `https://onrajhrabqtotiedgsxh.supabase.co`
 
-## 1. Apply the database schema
+## 1. Apply the cTrader database schema
 
-1. Sign in to the Supabase account that owns the Gold Hunter AI project.
-2. Open the project and choose **SQL Editor**.
+1. Sign in to the Supabase account that owns the dedicated Gold Hunter AI project.
+2. Open **SQL Editor**.
 3. Open `supabase/setup.sql` in this GitHub repository.
-4. Copy the entire SQL file into a new SQL query and click **Run**.
-5. Open **Table Editor** and confirm these tables exist: `profiles`, `user_settings`, `risk_settings`, `mt5_devices`, `mt5_heartbeats`, `trade_history`, `strategy_signals`, and `partner_commissions`.
+4. Copy the entire file into a new SQL query and click **Run**.
+5. Open **Table Editor** and confirm these tables exist:
+   - `profiles`
+   - `user_settings`
+   - `risk_settings`
+   - `bot_settings`
+   - `ctrader_accounts`
+   - `trade_history`
+   - `strategy_signals`
+   - `partner_commissions`
 
-The script is designed to be re-runnable. It enables RLS on every public table and gives authenticated users access only to their own profile/settings/history rows. MT5 device registration and telemetry writes are reserved for a future trusted backend/EA bridge; the mobile client cannot spoof a device, trade or commission.
+The script is safe to re-run for this fresh project. It enables row-level security and restricts users to their own settings and records. Broker-originated account metadata, trade history, signals and commission statements are read-only to the mobile app.
 
-## 2. Authentication configuration
+## 2. Data API exposure
 
-In Supabase Dashboard -> Authentication -> URL Configuration:
-- Set the Site URL to a real website you control if you have one; otherwise leave the default while testing mobile email/password auth.
-- Enable email/password provider.
-- Review the email confirmation setting. If enabled, new users must confirm the email before signing in.
-- For mobile password recovery, the app currently requests a reset email; a deep-link password update screen still needs to be added before relying on in-app recovery.
+Supabase changed the default exposure behavior for newly created public tables. In **Project Settings -> API -> Data API** (wording may vary), confirm the `public` schema is exposed to the Data API. Keep RLS enabled; exposing a schema does not replace row-level security.
 
-## 3. Client keys
+## 3. Authentication
 
-The app uses the project URL and publishable key in `lib/supabase.ts`. A publishable key is intended for public mobile clients. Never add a Supabase secret/service_role key, MT5 password, or Deriv credentials to the app, GitHub, or an `EXPO_PUBLIC_*` variable.
+In **Authentication -> Providers**, enable Email. Choose whether email confirmation is required for testing. The app uses Supabase email/password authentication.
 
-## 4. Verify
+## 4. Keys and cTrader security
 
-After running the SQL:
-1. Create a test user from the app Profile tab.
-2. If email confirmation is enabled, confirm the message.
-3. Sign in and sign out.
-4. In Supabase Authentication -> Users, verify the test user appears.
-5. In Table Editor, test that a user can only see their own rows.
+The mobile app may use only the Supabase project URL and publishable key. Never put a Supabase secret/service-role key, cTrader client secret, OAuth access token or refresh token in the app, GitHub source, or an `EXPO_PUBLIC_*` variable.
 
-The connected Supabase integration used by the development assistant may belong to a different Supabase account. If so, the SQL must be run by the project owner in the Dashboard; the app itself can still connect using the project URL and publishable key.
+The `ctrader_accounts` table stores safe account metadata only. OAuth token persistence and the server-side cTrader gateway are the next backend implementation step; do not manually insert tokens or credentials into database tables.
 
-## Current boundary
+## 5. Risk behavior
 
-This schema and mobile Auth client do not yet constitute the MT5 bridge. There is no remote trade command path, no EA device-token provisioning and no live market feed. The EA remains demo-only and must be compiled/tested in MetaEditor and Strategy Tester before any trading test. Do not enable live trading.
+- Fixed cash risk amount in the actual cTrader account currency; no percentage-based sizing.
+- Cash risk remains unset until explicitly configured.
+- Position size is calculated from the structural stop distance and broker symbol metadata.
+- If minimum broker volume exceeds the cash-risk limit, the trade must be skipped; the stop must never be moved to fit lot size.
+- No arbitrary daily trade-count cap.
+- One open position maximum; stop after two consecutive losses.
+- Demo-only database constraint; live trading is not enabled.
+
+## 6. Verify
+
+After running SQL, confirm all eight tables appear in Table Editor. Then create a test user from the app Profile tab and confirm the user appears under Authentication -> Users.
+
+The database schema alone does not connect a broker or place trades. cTrader OAuth, token storage, live demo price feed, order submission and broker-side stop verification still need to be implemented and tested before the app can trade.
