@@ -6,6 +6,10 @@ on:
     paths:
       - 'supabase/functions/**'
       - 'supabase/config.toml'
+      - 'app/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
       - '.github/workflows/deploy-ctrader-oauth.yml'
   workflow_dispatch:
 
@@ -46,6 +50,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Type-check Expo application
+        run: |
+          npm ci
+          npm run typecheck
 
       - name: Deploy cTrader OAuth start function
         env:
