@@ -132,7 +132,7 @@ Deno.serve(async(req)=>{
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null},
       account:{balance,moneyDigits,leverage:trader.leverageInCents??null},
-      quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,receivedAt:new Date().toISOString(),dataReady
+      quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,candlesFresh,quoteFresh,receivedAt:new Date().toISOString(),dataReady
     };
     await admin.from("ctrader_accounts").update({symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
     return json(result);
