@@ -77,7 +77,7 @@ Deno.serve(async(req)=>{
       const net=(t:Record<string,unknown>)=>num(t.profit??0)-Math.abs(num(t.commission??0))-Math.abs(num(t.swap??0));
       const dailyLoss=Math.max(0,-(daily??[]).reduce((a,t)=>a+net(t),0));
       const weeklyLoss=Math.max(0,-(weekly??[]).reduce((a,t)=>a+net(t),0));
-      const consecutiveLosses=(lastClosed??[]).every(t=>net(t)<0)?2:0;
+      const consecutiveLosses=(lastClosed??[]).length>=2&&(lastClosed??[]).every(t=>net(t)<0)?2:0;
       if(dailyLoss>=num(risk.daily_loss_limit_cash)||weeklyLoss>=num(risk.weekly_loss_limit_cash)||consecutiveLosses>=2){
         outcomes.push({userId,status:"blocked",reason:"Daily/weekly cash loss limit reached or two consecutive losing trades; bot paused"});continue;
       }
