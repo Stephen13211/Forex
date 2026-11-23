@@ -11,7 +11,12 @@ function waitFor(ws:WebSocket,type:number,id:string,timeout=15000):Promise<Msg>{
         const raw=typeof ev.data==="string"?ev.data:ev.data instanceof Blob?await ev.data.text():new TextDecoder().decode(ev.data);
         const m=JSON.parse(raw) as Msg;
         if(m.payloadType===2142||m.payloadType===2132){finish(new Error("cTrader rejected the order/request: "+JSON.stringify(m.payload??{})));return;}
-        if(m.payloadType===type&&(!m.clientMsgId||m.clientMsgId===id))finish(undefined,m);
+        if(m.payloadType===type&&(!m.clientMsgId||m.clientMsgId===id)){
+          const execution=Number(m.payload?.executionType??0);
+          if(type===2126&&execution===2)return;
+          if(type===2126&&execution===7){finish(new Error("cTrader rejected the order"));return;}
+          finish(undefined,m);
+        }
       }catch(e){finish(e instanceof Error?e:new Error("Invalid cTrader response"));}
     };
     const onError=()=>finish(new Error("cTrader WebSocket error"));
@@ -62,6 +67,20 @@ Deno.serve(async(req)=>{
         outcomes.push({userId,status:"no_trade",reason:(s?.reasons??["Market/session/strategy gates not satisfied"]).join(" ")});continue;
       }
       if((data.openPositions?.length??0)>0||(data.pendingOrders?.length??0)>0){outcomes.push({userId,status:"blocked",reason:"Existing broker position or pending order; one-position limit"});continue;}
+      const now=new Date();
+      const dayStart=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate())).toISOString();
+      const weekStart=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()-((now.getUTCDay()+6)%7))).toISOString();
+      const {data:daily,error:dailyError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",dayStart);
+      const {data:weekly,error:weeklyError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",weekStart);
+      const {data:lastClosed,error:lastError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").order("closed_at",{ascending:false}).limit(2);
+      if(dailyError||weeklyError||lastError)throw new Error("Could not verify daily/weekly loss limits and consecutive losses");
+      const net=(t:Record<string,unknown>)=>num(t.profit??0)-Math.abs(num(t.commission??0))-Math.abs(num(t.swap??0));
+      const dailyLoss=Math.max(0,-(daily??[]).reduce((a,t)=>a+net(t),0));
+      const weeklyLoss=Math.max(0,-(weekly??[]).reduce((a,t)=>a+net(t),0));
+      const consecutiveLosses=(lastClosed??[]).every(t=>net(t)<0)?2:0;
+      if(dailyLoss>=num(risk.daily_loss_limit_cash)||weeklyLoss>=num(risk.weekly_loss_limit_cash)||consecutiveLosses>=2){
+        outcomes.push({userId,status:"blocked",reason:"Daily/weekly cash loss limit reached or two consecutive losing trades; bot paused"});continue;
+      }
       // XAUUSD is quoted in USD. We only size automatically when the broker confirms
       // the account deposit asset is the same USD quote asset. Never guess FX conversion.
       if(!data.symbol?.quoteAssetId||!data.account?.depositAssetId||String(data.symbol.quoteAssetId)!==String(data.account.depositAssetId)){
@@ -69,13 +88,13 @@ Deno.serve(async(req)=>{
       }
       const lotSize=num(data.symbol.lotSize),digits=num(data.symbol.digits),minVolume=num(data.symbol.minVolume),stepVolume=num(data.symbol.stepVolume),maxVolume=num(data.symbol.maxVolume);
       const stopDistance=Math.abs(num(s.entry)-num(s.stop));const targetDistance=Math.abs(num(s.target)-num(s.entry));
-      const tickSize=Math.pow(10,-digits);
+      
       const cashRisk=num(risk.cash_risk_per_trade);
-      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2)){
+      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0)){
         outcomes.push({userId,status:"blocked",reason:"Broker contract or structural stop/target data is invalid"});continue;
       }
       // cTrader volume is expressed in hundredths of a base unit.
-      const rawProtocolVolume=(cashRisk/(stopDistance*0.01))*100;
+      const rawProtocolVolume=cashRisk/(stopDistance*0.01);
       const volume=Math.floor(Math.min(rawProtocolVolume,maxVolume)/stepVolume)*stepVolume;
       const estimatedRisk=(volume/100)*stopDistance;
       if(volume<minVolume||estimatedRisk>cashRisk+0.000001){outcomes.push({userId,status:"blocked",reason:"Broker minimum/step volume would exceed the fixed cash-risk cap"});continue;}
@@ -95,7 +114,7 @@ Deno.serve(async(req)=>{
         ws.send(JSON.stringify({payloadType:2106,clientMsgId:orderId,payload:{
           ctidTraderAccountId:accountId,symbolId:num(data.symbol.symbolId),orderType:1,
           tradeSide:s.direction==="buy"?1:2,volume,relativeStopLoss:relativeSL,relativeTakeProfit:relativeTP,
-          label:"GoldHunterAI-Demo",timeInForce:1
+          label:"GoldHunterAI-Demo",timeInForce:4
         }}));
         const event=await eventPromise;const ep=event.payload??{};
         const execution=String(ep.executionType??"").toUpperCase();
