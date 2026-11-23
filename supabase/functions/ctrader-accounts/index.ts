@@ -22,7 +22,7 @@ function waitForMessage(ws: WebSocket, expectedType: number, timeoutMs = 12000):
         const message = JSON.parse(raw) as CTraderMessage;
         if (message.payloadType === 2142) {
           const p = message.payload ?? {};
-          finish(new Error(`cTrader rejected request: ${String(p.errorCode ?? "unknown error")}`));
+          finish(new Error(`cTrader rejected request: ${String(p.errorCode ?? "unknown error")}${p.description ? ` — ${String(p.description)}` : ""}`));
         } else if (message.payloadType === expectedType) {
           finish(undefined, message);
         }
@@ -151,10 +151,19 @@ Deno.serve(async (req) => {
         clientId: requiredEnv("CTRADER_CLIENT_ID"),
         clientSecret: requiredEnv("CTRADER_CLIENT_SECRET"),
       }, 2101);
-      await sendAndWait(ws, 2102, {
-        ctidTraderAccountId: selected.account_id,
-        accessToken,
-      }, 2103);
+      try {
+        const authResult = await sendAndWait(ws, 2102, {
+          ctidTraderAccountId: selected.account_id,
+          accessToken,
+        }, 2103);
+        if (String(authResult.payload?.ctidTraderAccountId ?? "") !== selected.account_id) {
+          return json({ error: "cTrader returned a different account ID during authentication. No account was linked.", stage: "account_auth" });
+        }
+      } catch (authError) {
+        const detail = authError instanceof Error ? authError.message : "Unknown cTrader account-authentication error";
+        console.error("cTrader account authentication rejected", { accountId: selected.account_id, detail });
+        return json({ error: detail, stage: "account_auth" });
+      }
     } finally {
       try { ws.close(1000, "Account authentication complete"); } catch { /* already closed */ }
     }
