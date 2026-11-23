@@ -4,7 +4,7 @@ import { json, requiredEnv, sha256Hex, supabaseAdmin } from "../_shared/ctrader.
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST required" }, 405);
   try {
-    const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\\s+/i, "");
+    const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     if (!jwt) return json({ error: "Sign in first" }, 401);
 
     const userClient = createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_ANON_KEY"), {
@@ -15,7 +15,7 @@ Deno.serve(async (req) => {
     if (error || !user) return json({ error: "Invalid or expired Supabase session" }, 401);
 
     const stateBytes = crypto.getRandomValues(new Uint8Array(32));
-    const state = btoa(String.fromCharCode(...stateBytes)).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+    const state = btoa(String.fromCharCode(...stateBytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
     const admin = supabaseAdmin();
     const { error: insertError } = await admin.from("ctrader_oauth_states").insert({
       state_hash: await sha256Hex(state),
