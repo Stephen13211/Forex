@@ -124,7 +124,15 @@ Deno.serve(async(req)=>{
         const verified=await req(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
         const opened=(verified.position??[]) as Record<string,unknown>[];
         const live=opened.find(p=>String(p.positionId)===String(position.positionId));
-        if(!live||!num(live.stopLoss)||!num(live.takeProfit))throw new Error("Filled position lacks broker-confirmed stop-loss/take-profit; emergency closure required");
+        if(!live||!num(live.stopLoss)||!num(live.takeProfit)){
+          const closeId=crypto.randomUUID();const closePromise=waitFor(ws,2126,closeId,15000);
+          ws.send(JSON.stringify({payloadType:2111,clientMsgId:closeId,payload:{ctidTraderAccountId:accountId,positionId:num(position.positionId),volume:num(live?.volume??position.volume??volume)}}));
+          await closePromise;
+          const afterClose=await req(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
+          const stillOpen=((afterClose.position??[]) as Record<string,unknown>[]).some(p=>String(p.positionId)===String(position.positionId));
+          if(stillOpen)throw new Error("CRITICAL: broker position opened without verified protection and emergency close was not confirmed");
+          throw new Error("Broker position lacked verified SL/TP; emergency close confirmed and no trade was retained");
+        }
         const {error:historyError}=await admin.from("trade_history").insert({
           user_id:userId,ctrader_account_id:String(accountId),broker_deal_id:String(position.positionId),
           symbol:"XAUUSD",side:s.direction,volume:volume/100,entry_price:num(position.price),stop_loss:num(live.stopLoss),
