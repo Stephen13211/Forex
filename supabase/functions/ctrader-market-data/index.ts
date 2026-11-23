@@ -143,6 +143,13 @@ Deno.serve(async(req)=>{
     const pendingOrders=Array.isArray(reconcile.order)?reconcile.order:[];
     const traderResponse=await request(ws,2121,{ctidTraderAccountId:Number(accountId)},2122);
     const trader=(traderResponse.trader??{}) as Record<string,unknown>;
+    const depositAssetId=String(trader.depositAssetId??"");
+    if(!depositAssetId)throw new Error("cTrader did not provide the demo account deposit-currency ID.");
+    const assetResponse=await request(ws,2112,{ctidTraderAccountId:Number(accountId)},2113);
+    const assets=Array.isArray(assetResponse.asset)?assetResponse.asset as Record<string,unknown>[]:[];
+    const depositAsset=assets.find(asset=>String(asset.assetId??"")===depositAssetId);
+    const accountCurrency=String(depositAsset?.name??"").trim().toUpperCase();
+    if(!/^[A-Z]{3,8}$/.test(accountCurrency))throw new Error("Could not verify the Deriv demo account deposit currency.");
     // Reconcile locally recorded bot positions against broker close-deal records.
     // Loss-limit calculations must use broker-confirmed realised results, not stale local rows.
     const {data:localOpen,error:localOpenError}=await admin.from("trade_history")
@@ -236,10 +243,10 @@ Deno.serve(async(req)=>{
         minCommission:detail.minCommission??null,minCommissionType:detail.minCommissionType??null,
         minCommissionAsset:detail.minCommissionAsset??null,preciseMinCommission:detail.preciseMinCommission??null,
         pnlConversionFeeRate:detail.pnlConversionFeeRate??null},
-      account:{balance,moneyDigits,leverage:trader.leverageInCents??null,depositAssetId:trader.depositAssetId??null},
+      account:{balance,moneyDigits,leverage:trader.leverageInCents??null,depositAssetId:trader.depositAssetId??null,currency:accountCurrency},
       quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,candlesFresh,quoteFresh,sessionOpen,receivedAt:new Date().toISOString(),dataReady
     };
-    await admin.from("ctrader_accounts").update({symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
+    await admin.from("ctrader_accounts").update({account_currency:accountCurrency,symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
     return json(result);
   }catch(error){
     console.error("cTrader market data failed",error);
