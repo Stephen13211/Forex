@@ -29,6 +29,18 @@ function AuthPanel(){
 }
 
 
+async function getFunctionErrorMessage(error: any): Promise<string> {
+ if (error?.context) {
+  try {
+   const response = typeof error.context.clone === "function" ? error.context.clone() : error.context;
+   const payload = await response.json();
+   if (payload?.error) return String(payload.error);
+   if (payload?.message) return String(payload.message);
+  } catch { /* response may not contain JSON */ }
+ }
+ return error?.message ?? "Unknown Supabase function error";
+}
+
 type AvailableCTraderAccount = { account_id: string; login: string | null; broker: string; environment: string };
 
 function CTraderConnectPanel(){
@@ -37,7 +49,7 @@ function CTraderConnectPanel(){
   setBusy(true);setMessage("Securely checking the cTrader demo account list…");
   const {data,error}=await supabase.functions.invoke("ctrader-accounts",{body:{}});
   setBusy(false);
-  if(error){setMessage("Could not retrieve accounts. Make sure you have authorised cTrader and the account-discovery function has been deployed.");return;}
+  if(error){setMessage("Account discovery failed: "+await getFunctionErrorMessage(error));return;}
   if(data?.error){setMessage(data.error);return;}
   const found=Array.isArray(data?.accounts)?data.accounts as AvailableCTraderAccount[]:[];
   setAccounts(found);
@@ -53,7 +65,7 @@ function CTraderConnectPanel(){
   setBusy(true);setMessage("");
   const {data,error}=await supabase.functions.invoke("ctrader-oauth-start",{body:{}});
   setBusy(false);
-  if(error){setMessage("Could not start cTrader authorisation. Check that you are signed in and the OAuth functions are deployed.");return;}
+  if(error){setMessage("cTrader authorisation could not start: "+await getFunctionErrorMessage(error));return;}
   if(!data?.authorization_url){setMessage(data?.error??"The authorisation URL was not returned.");return;}
   try{await Linking.openURL(data.authorization_url);setMessage("Sign in to cTrader and approve access for your Deriv DEMO account.");}
   catch{setMessage("Could not open the cTrader authorisation page on this device.");}
@@ -62,7 +74,7 @@ function CTraderConnectPanel(){
   setBusy(true);setMessage("Authenticating the selected demo account with cTrader…");
   const {data,error}=await supabase.functions.invoke("ctrader-accounts",{body:{account_id:account.account_id}});
   setBusy(false);
-  if(error){setMessage("Account authentication failed. Please try again.");return;}
+  if(error){setMessage("Account authentication failed: "+await getFunctionErrorMessage(error));return;}
   if(data?.error){setMessage(data.error);return;}
   if(data?.connected){setConnected(account);setAccounts([]);setMessage("Deriv demo account authenticated and securely linked. Automated trading is still disabled while the market-data and risk engine are built and tested.");}
  }
