@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { decryptSecret, encryptSecret, json, requiredEnv, supabaseAdmin } from "../_shared/ctrader.ts";
+import { evaluateGoldSetup } from "../_shared/strategy.ts";
 
 type Message = { payloadType?: number; payload?: Record<string, unknown>; clientMsgId?: string };
 type Candle = { time:number; open:number; high:number; low:number; close:number; volume?:number };
@@ -101,17 +102,19 @@ Deno.serve(async(req)=>{
     const candles:Record<string,Candle[]>={};
     for(const p of periods){
       const bars=await request(ws,2137,{ctidTraderAccountId:Number(accountId),symbolId,period:p.period,fromTimestamp:p.from,toTimestamp:now,count:300},2138);
-      candles[p.key]=decodeBars(bars.trendbar);
+      const durationMs=({h4:240,h1:60,m15:15,m5:5} as const)[p.key]*60*1000;
+      candles[p.key]=decodeBars(bars.trendbar).filter(c=>c.time+durationMs<=Date.now());
     }
     const moneyDigits=Number(trader.moneyDigits??2);
     const balance=Number(trader.balance??0)/Math.pow(10,moneyDigits);
+    const dataReady=Object.values(candles).every(c=>c.length>=220);
+    const strategy=dataReady?evaluateGoldSetup({h4:candles.h4,h1:candles.h1,m15:candles.m15,m5:candles.m5}):null;
     const result={
       connected:true,environment:"demo",accountId,symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null},
       account:{balance,moneyDigits,leverage:trader.leverageInCents??null},
-      candles,receivedAt:new Date().toISOString(),
-      dataReady:Object.values(candles).every(c=>c.length>=220)
+      candles,strategy,receivedAt:new Date().toISOString(),dataReady
     };
     await admin.from("ctrader_accounts").update({symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
     return json(result);
