@@ -36,7 +36,7 @@ async function freshToken(admin:ReturnType<typeof supabaseAdmin>,row:Record<stri
 const num=(v:unknown)=>Number(v);
 Deno.serve(async(req)=>{
   if(req.method!=="POST")return json({error:"POST required"},405);
-  if(req.headers.get("x-bot-cron-secret")!==requiredEnv("BOT_CRON_SECRET"))return json({error:"Unauthorized scheduler request"},401);
+  if(req.headers.get("Authorization")!==`Bearer ${requiredEnv("SUPABASE_SERVICE_ROLE_KEY")}`)return json({error:"Unauthorized scheduler request"},401);
   const admin=supabaseAdmin();const outcomes:Record<string,unknown>[]=[];
   const {data:settings,error}=await admin.from("bot_settings").select("user_id,environment,bot_enabled,symbol").eq("bot_enabled",true).eq("environment","demo").eq("symbol","XAUUSD");
   if(error)return json({error:"Could not load bot settings"},500);
@@ -54,7 +54,7 @@ Deno.serve(async(req)=>{
       if(accountError||!account){outcomes.push({userId,status:"blocked",reason:"No connected Deriv demo account"});continue;}
       const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",userId).maybeSingle();
       if(tokenError||!tokenRow)throw new Error("Encrypted cTrader token unavailable");
-      const market=await fetch(requiredEnv("SUPABASE_URL")+"/functions/v1/ctrader-market-data",{method:"POST",headers:{"content-type":"application/json","x-internal-bot-secret":requiredEnv("BOT_CRON_SECRET"),"apikey":requiredEnv("SUPABASE_SERVICE_ROLE_KEY")},body:JSON.stringify({user_id:userId})});
+      const market=await fetch(requiredEnv("SUPABASE_URL")+"/functions/v1/ctrader-market-data",{method:"POST",headers:{"content-type":"application/json","x-internal-bot-secret":requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),"apikey":requiredEnv("SUPABASE_SERVICE_ROLE_KEY")},body:JSON.stringify({user_id:userId})});
       const data=await market.json();
       if(!market.ok||!data.connected)throw new Error(data.error??"Market data scan failed");
       const s=data.strategy;
