@@ -106,7 +106,8 @@ Deno.serve(async(req)=>{
         const auth=await ctraderRequest(ws,2102,{ctidTraderAccountId:accountId,accessToken:token},2103);
         if(String(auth.ctidTraderAccountId??"")!==String(accountId))throw new Error("Broker account identity mismatch");
         const rec=await ctraderRequest(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
-        if((rec.position?.length??0)>0||(rec.order?.length??0)>0)throw new Error("A broker position/order appeared during the scan; refusing duplicate entry");
+        const reconciledPositions=Array.isArray(rec.position)?rec.position:[];const reconciledOrders=Array.isArray(rec.order)?rec.order:[];
+        if(reconciledPositions.length>0||reconciledOrders.length>0)throw new Error("A broker position/order appeared during the scan; refusing duplicate entry");
         const relativeSL=Math.round(stopDistance*100000),relativeTP=Math.round(targetDistance*100000);
         if(!(relativeSL>0&&relativeTP>=relativeSL*2))throw new Error("Invalid relative protection distances");
         const orderId=crypto.randomUUID();
