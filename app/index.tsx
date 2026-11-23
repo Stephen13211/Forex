@@ -140,7 +140,7 @@ function MarketDataPanel(){
   setSnapshot(data as MarketSnapshot);
   setMessage(data.dataReady?"Broker data received. Candle history is ready for strategy evaluation.":"Broker connection succeeded, but there are not yet enough candles for the strategy. No trade can be opened.");
  }
- useEffect(()=>{void refresh();},[]);
+ useEffect(()=>{void refresh();const interval=setInterval(()=>void refresh(),60000);return()=>clearInterval(interval);},[]);
  const last=(key:string)=>snapshot?.candles?.[key]?.at(-1);
  return <Card><Heading>Live Deriv XAUUSD data</Heading>
   <Text style={s.body}>This reads the authenticated DEMO account directly from cTrader. No sample prices are shown.</Text>
