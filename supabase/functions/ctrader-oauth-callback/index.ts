@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
 
     // Do not invent an account ID here. The next gateway step must request the
     // user's actual account list with ProtoOAGetAccountListByAccessTokenReq.
-    const redirect = Deno.env.get("GOLDHUNTER_APP_REDIRECT_URL") ?? "goldhunterai://ctrader-connected";
+    const redirect = Deno.env.get("GOLDHUNTER_APP_REDIRECT_URL") ?? "goldhunterai:///?ctrader=connected";
     return new Response(null, { status: 302, headers: { location: redirect, "cache-control": "no-store" } });
   } catch (error) {
     console.error("cTrader OAuth callback failed", error);
