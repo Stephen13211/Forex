@@ -101,6 +101,13 @@ Deno.serve(async(req)=>{
     const detail=(Array.isArray(detailResponse.symbol)?detailResponse.symbol[0]:null) as Record<string,unknown>|null;
     if(!detail)throw new Error("cTrader did not return full XAUUSD contract details.");
     const now=Date.now();
+    const spotEventPromise=waitFor(ws,2131,"",10000);
+    await request(ws,2127,{ctidTraderAccountId:Number(accountId),symbolId:[symbolId],subscribeToSpotTimestamp:true},2128);
+    const spotEvent=await spotEventPromise;
+    const bid=Number(spotEvent.bid??0)/100000;
+    const ask=Number(spotEvent.ask??0)/100000;
+    const spotTimestamp=Number(spotEvent.timestamp??0);
+    if(!(bid>0&&ask>=bid&&spotTimestamp>0))throw new Error("cTrader did not return a valid, timestamped XAUUSD bid/ask quote.");
     const periods=[{key:"h4",period:10,from:now-100*24*60*60*1000},{key:"h1",period:9,from:now-25*24*60*60*1000},{key:"m15",period:7,from:now-7*24*60*60*1000},{key:"m5",period:5,from:now-3*24*60*60*1000}] as const;
     const candles:Record<string,Candle[]>={};
     for(const p of periods){
@@ -110,14 +117,22 @@ Deno.serve(async(req)=>{
     }
     const moneyDigits=Number(trader.moneyDigits??2);
     const balance=Number(trader.balance??0)/Math.pow(10,moneyDigits);
-    const dataReady=Object.values(candles).every(c=>c.length>=220);
-    const strategy=dataReady?evaluateGoldSetup({h4:candles.h4,h1:candles.h1,m15:candles.m15,m5:candles.m5}):null;
+    const barsReady=Object.values(candles).every(c=>c.length>=220);
+    const freshWindows={h4:8*60*60*1000,h1:2*60*60*1000,m15:30*60*1000,m5:10*60*1000} as const;
+    const candlesFresh=(Object.keys(candles) as (keyof typeof freshWindows)[]).every(key=>now-candles[key].at(-1)!.time<=freshWindows[key]);
+    const quoteFresh=now-spotTimestamp<=120000&&now>=spotTimestamp;
+    const dataReady=barsReady&&candlesFresh&&quoteFresh;
+    const rawStrategy=dataReady?evaluateGoldSetup({h4:candles.h4,h1:candles.h1,m15:candles.m15,m5:candles.m5}):null;
+    let strategy=rawStrategy;
+    if(strategy&&((openPositions.length+pendingOrders.length)>0))strategy={...strategy,direction:"none",status:"no_trade",entry:null,stop:null,target:null,reasons:[...strategy.reasons,"An existing broker position or pending order blocks new entries."]};
+    if(strategy&&strategy.direction!=="none"&&strategy.atrM15&&ask-bid>strategy.atrM15*0.1)strategy={...strategy,direction:"none",status:"no_trade",entry:null,stop:null,target:null,reasons:[...strategy.reasons,"Current XAUUSD spread exceeds 10% of M15 ATR."]};
+    if(!candlesFresh)strategy=null;
     const result={
       connected:true,environment:"demo",accountId,symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null},
       account:{balance,moneyDigits,leverage:trader.leverageInCents??null},
-      candles,strategy,openPositions,pendingOrders,receivedAt:new Date().toISOString(),dataReady
+      quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,receivedAt:new Date().toISOString(),dataReady
     };
     await admin.from("ctrader_accounts").update({symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
     return json(result);
