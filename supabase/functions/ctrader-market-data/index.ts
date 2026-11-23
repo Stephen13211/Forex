@@ -74,13 +74,22 @@ Deno.serve(async(req)=>{
   if(req.method!=="POST")return json({error:"POST required"},405);
   let ws:WebSocket|undefined;
   try{
-    const jwt=(req.headers.get("Authorization")??"").replace(/^Bearer\\s+/i,"");
-    if(!jwt)return json({error:"Sign in first"},401);
-    const userClient=createClient(requiredEnv("SUPABASE_URL"),requiredEnv("SUPABASE_ANON_KEY"),{global:{headers:{Authorization:`Bearer ${jwt}`}},auth:{persistSession:false,autoRefreshToken:false}});
-    const {data:{user},error:authError}=await userClient.auth.getUser(jwt);
-    if(authError||!user)return json({error:"Invalid or expired Supabase session"},401);
     const admin=supabaseAdmin();
-    const {data:account,error:accountError}=await admin.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status").eq("user_id",user.id).eq("environment","demo").eq("connection_status","connected").maybeSingle();
+    const internalSecret=req.headers.get("x-internal-bot-secret");
+    let userId:string;
+    if(internalSecret && internalSecret===requiredEnv("BOT_CRON_SECRET")){
+      const body=await req.json().catch(()=>({}));
+      if(typeof body.user_id!=="string")return json({error:"user_id required"},400);
+      userId=body.user_id;
+    }else{
+      const jwt=(req.headers.get("Authorization")??"").replace(/^Bearer\\s+/i,"");
+      if(!jwt)return json({error:"Sign in first"},401);
+      const userClient=createClient(requiredEnv("SUPABASE_URL"),requiredEnv("SUPABASE_ANON_KEY"),{global:{headers:{Authorization:`Bearer ${jwt}`}},auth:{persistSession:false,autoRefreshToken:false}});
+      const {data:{user},error:authError}=await userClient.auth.getUser(jwt);
+      if(authError||!user)return json({error:"Invalid or expired Supabase session"},401);
+      userId=user.id;
+    }
+    const {data:account,error:accountError}=await admin.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status").eq("user_id",userId).eq("environment","demo").eq("connection_status","connected").maybeSingle();
     if(accountError)throw accountError;
     if(!account)return json({error:"No authenticated Deriv DEMO account is linked. Connect cTrader first."},409);
     const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",user.id).maybeSingle();
@@ -143,7 +152,7 @@ Deno.serve(async(req)=>{
       connected:true,environment:"demo",accountId,symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null},
-      account:{balance,moneyDigits,leverage:trader.leverageInCents??null},
+      account:{balance,moneyDigits,leverage:trader.leverageInCents??null,depositAssetId:trader.depositAssetId??null},
       quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,candlesFresh,quoteFresh,sessionOpen,receivedAt:new Date().toISOString(),dataReady
     };
     await admin.from("ctrader_accounts").update({symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
