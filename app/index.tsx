@@ -250,24 +250,25 @@ function TradeHistoryPanel(){
 
 
 function HomeDashboard(){
- const [broker,setBroker]=useState("CHECKING"),[risk,setRisk]=useState("NOT CONFIGURED"),[bot,setBot]=useState("STOPPED");
+ const [broker,setBroker]=useState("CHECKING"),[risk,setRisk]=useState("NOT CONFIGURED"),[bot,setBot]=useState("STOPPED"),[execution,setExecution]=useState("LOCKED");
  useEffect(()=>{let active=true;(async()=>{
   const {data:{user}}=await supabase.auth.getUser();
   if(!user){if(active){setBroker("SIGN IN REQUIRED");setRisk("NOT CONFIGURED");}return;}
   const [account,settings,botSettings]=await Promise.all([
    supabase.from("ctrader_accounts").select("connection_status,environment").eq("user_id",user.id).eq("environment","demo").maybeSingle(),
-   supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash").eq("user_id",user.id).maybeSingle(),
+   supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash,trading_enabled").eq("user_id",user.id).maybeSingle(),
    supabase.from("bot_settings").select("bot_enabled,environment").eq("user_id",user.id).maybeSingle()
   ]);
   if(!active)return;
   setBroker(account.data?.connection_status==="connected"?"DERIV DEMO LINKED":"NOT CONNECTED");
   setRisk(settings.data?.cash_risk_per_trade&&settings.data?.daily_loss_limit_cash&&settings.data?.weekly_loss_limit_cash?"CONFIGURED":"NOT CONFIGURED");
+  setExecution(settings.data?.trading_enabled===true?"PERMISSION ENABLED · DEMO":"LOCKED");
   setBot(botSettings.data?.bot_enabled?"ENABLED IN SETTINGS":"STOPPED");
  })();return()=>{active=false;};},[]);
  return <><Card><Text style={s.kicker}>GOLD HUNTER AI · XAUUSD</Text><Text style={s.big}>DEMO SYSTEM</Text><Text style={s.muted}>The app is restricted to your Deriv cTrader demo account. Live-account trading is not supported.</Text><View style={s.pills}><Text style={s.pill}>{broker}</Text><Text style={s.pill}>{risk} RISK</Text><Text style={s.pill}>{bot}</Text></View></Card>
  <View style={s.metrics}><Metric label="ACCOUNT BALANCE" value="VIEW CHART" sub="Latest broker snapshot"/><Metric label="OPEN POSITIONS" value="VIEW CHART" sub="Broker reconciliation"/><Metric label="TRADE HISTORY" value="VIEW HISTORY"/></View>
  <Card><Heading>Trading framework</Heading><Row label="Market" value="XAUUSD"/><Row label="Higher timeframe direction" value="H4 + H1"/><Row label="Setup timeframe" value="M15"/><Row label="Entry confirmation" value="M5"/><Row label="Stop loss" value="Confirmed structure + ATR buffer"/><Row label="Position sizing" value="Fixed cash risk"/><Row label="Maximum open positions" value="1"/><Row label="Daily trade cap" value="NONE"/></Card>
- <Card><Heading>Safety status</Heading><Row label="Environment" value="DEMO ONLY"/><Row label="Live trading" value="DISABLED"/><Row label="Automatic execution" value="NOT ENABLED"/><Text style={s.body}>Market data and strategy evaluation are connected in the Chart screen. Automated execution is still locked pending broker contract validation, news protection, loss-limit enforcement and a verified demo order test.</Text></Card></>;
+ <Card><Heading>Safety status</Heading><Row label="Environment" value="DEMO ONLY"/><Row label="Live trading" value="DISABLED"/><Row label="Automatic execution permission" value={execution}/><Text style={s.body}>Market data and strategy evaluation are connected in the Chart screen. Automated execution is still locked pending broker contract validation, news protection, loss-limit enforcement and a verified demo order test.</Text></Card></>;
 }
 
 function Screen({tab}:{tab:Tab}){
