@@ -1,4 +1,5 @@
 import { decryptSecret, encryptSecret, json, requiredEnv, supabaseAdmin } from "../_shared/ctrader.ts";
+import { sizeXauUsdVolumeWithFees, estimateXauUsdRoundTurnCommission } from "../_shared/broker-risk.ts";
 
 type Msg={payloadType?:number;payload?:Record<string,unknown>;clientMsgId?:string};
 function waitFor(ws:WebSocket,type:number,id:string,timeout=15000):Promise<Msg>{
@@ -117,32 +118,28 @@ Deno.serve(async(req)=>{
       const targetDistance=s.direction==="buy"?structuralTarget-executableEntry:executableEntry-structuralTarget;
       
       const cashRisk=num(risk.cash_risk_per_trade);
-      // Commission must be included in the fixed cash-risk cap. Until the broker's
-      // commission schedule is explicitly zero or a supported calculation is added,
-      // fail closed rather than silently exceeding the user's risk budget.
-      const commissionFields=[
-        data.symbol.commission,data.symbol.preciseTradingCommissionRate,
-        data.symbol.minCommission,data.symbol.preciseMinCommission,
-        data.symbol.pnlConversionFeeRate
-      ];
-      const commissionKnown=(data.symbol.commission!==null&&data.symbol.commission!==undefined)||
-        (data.symbol.preciseTradingCommissionRate!==null&&data.symbol.preciseTradingCommissionRate!==undefined);
-      const conversionFeeKnown=data.symbol.pnlConversionFeeRate!==null&&data.symbol.pnlConversionFeeRate!==undefined;
-      const hasBrokerFees=commissionFields.some(value=>value!==null&&value!==undefined&&num(value)>0);
-      if(!commissionKnown||!conversionFeeKnown||hasBrokerFees){
-        outcomes.push({userId,status:"blocked",reason:"Broker commission/conversion-fee metadata is missing or reports fees that are not modelled in the cash-risk calculation. Trade safely skipped."});
+      // Quote and deposit assets were verified identical above, so no quote-to-deposit
+      // conversion fee applies. Include supported cTrader commission schedules in sizing.
+      if(num(data.symbol.minCommission??0)>0&&data.symbol.preciseMinCommission==null){
+        outcomes.push({userId,status:"blocked",reason:"Broker minimum commission is positive but its precise value is missing; no order is allowed."});
         continue;
       }
       if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits==="OZ")){
         outcomes.push({userId,status:"blocked",reason:"Broker contract or structural stop/target data is invalid"});continue;
       }
-      // cTrader volume is hundredths of the symbol base unit. With XAUUSD
-      // measurementUnits=OZ and USD quote/deposit assets matched, one unit is
-      // one troy ounce: a $1 stop distance risks $1 per unit. Refuse any other unit.
-      const rawProtocolVolume=cashRisk/(stopDistance*0.01);
-      const volume=Math.floor(Math.min(rawProtocolVolume,maxVolume)/stepVolume)*stepVolume;
-      const estimatedRisk=(volume/100)*stopDistance;
-      if(volume<minVolume||estimatedRisk>cashRisk+0.000001){outcomes.push({userId,status:"blocked",reason:"Broker minimum/step volume would exceed the fixed cash-risk cap"});continue;}
+      // cTrader volume and lotSize are both protocol cents. Price loss and estimated
+      // opening + closing commission must fit inside the configured cash-risk cap.
+      const sizing=sizeXauUsdVolumeWithFees({
+        cashRisk,stopDistance,entryPrice:executableEntry,minVolume,maxVolume,volumeStep:stepVolume,
+        lotSizeProtocol:lotSize,accountCurrency:brokerCurrency,quoteCurrency:brokerCurrency,
+        commissionType:data.symbol.commissionType==null?null:num(data.symbol.commissionType),
+        preciseTradingCommissionRate:data.symbol.preciseTradingCommissionRate==null?null:num(data.symbol.preciseTradingCommissionRate),
+        preciseMinCommission:data.symbol.preciseMinCommission==null?null:num(data.symbol.preciseMinCommission),
+        minCommissionType:data.symbol.minCommissionType==null?null:num(data.symbol.minCommissionType),
+        minCommissionAsset:data.symbol.minCommissionAsset==null?null:String(data.symbol.minCommissionAsset)
+      });
+      if(!sizing.ok){outcomes.push({userId,status:"blocked",reason:sizing.reason});continue;}
+      const volume=sizing.volume;
       const token=await freshToken(admin,tokenRow);const accountId=num(account.ctrader_account_id);
       const ws=new WebSocket("wss://demo.ctraderapi.com:5036");
       await new Promise<void>((resolve,reject)=>{const t=setTimeout(()=>reject(new Error("cTrader demo connection timeout")),10000);ws.addEventListener("open",()=>{clearTimeout(t);resolve();},{once:true});ws.addEventListener("error",()=>{clearTimeout(t);reject(new Error("cTrader demo connection failed"));},{once:true});});
@@ -200,7 +197,17 @@ Deno.serve(async(req)=>{
         const actualVolume=num(((live.tradeData??{}) as Record<string,unknown>).volume??live.volume??volume);
         const actualEntry=num(live.price??position.price);
         const actualStop=num(live.stopLoss);
-        const actualCashRisk=Math.abs(actualEntry-actualStop)*(actualVolume/100);
+        const actualCommission=estimateXauUsdRoundTurnCommission({
+          volumeProtocol:actualVolume,entryPrice:actualEntry,lotSizeProtocol:lotSize,
+          accountCurrency:brokerCurrency,quoteCurrency:brokerCurrency,
+          commissionType:data.symbol.commissionType==null?null:num(data.symbol.commissionType),
+          preciseTradingCommissionRate:data.symbol.preciseTradingCommissionRate==null?null:num(data.symbol.preciseTradingCommissionRate),
+          preciseMinCommission:data.symbol.preciseMinCommission==null?null:num(data.symbol.preciseMinCommission),
+          minCommissionType:data.symbol.minCommissionType==null?null:num(data.symbol.minCommissionType),
+          minCommissionAsset:data.symbol.minCommissionAsset==null?null:String(data.symbol.minCommissionAsset)
+        });
+        const priceRisk=Math.abs(actualEntry-actualStop)*(actualVolume/100);
+        const actualCashRisk=actualCommission.ok?priceRisk+actualCommission.roundTurn:Number.POSITIVE_INFINITY;
         if(!(actualVolume>0&&actualEntry>0&&actualStop>0&&Number.isFinite(actualCashRisk)&&actualCashRisk<=cashRisk+0.000001)){
           const closeId=crypto.randomUUID();const closePromise=waitFor(ws,2126,closeId,15000);
           ws.send(JSON.stringify({payloadType:2111,clientMsgId:closeId,payload:{ctidTraderAccountId:accountId,positionId:num(position.positionId),volume:actualVolume>0?actualVolume:volume}}));
@@ -212,12 +219,12 @@ Deno.serve(async(req)=>{
         }
         const {error:historyError}=await admin.from("trade_history").insert({
           user_id:userId,ctrader_account_id:String(accountId),broker_deal_id:String(position.positionId),
-          symbol:"XAUUSD",side:s.direction,volume:volume/100,entry_price:num(position.price),stop_loss:num(live.stopLoss),
-          take_profit:num(live.takeProfit),cash_risk_amount:actualCashRisk,account_currency:account.account_currency,
+          symbol:"XAUUSD",side:s.direction,volume:actualVolume/100,entry_price:actualEntry,stop_loss:actualStop,
+          take_profit:num(live.takeProfit),cash_risk_amount:actualCashRisk,account_currency:brokerCurrency,
           strategy_score:num(s.score),is_demo:true,status:"open",opened_at:new Date().toISOString()
         });
         if(historyError)throw historyError;
-        outcomes.push({userId,status:"filled",positionId:String(position.positionId),volume:volume/100,estimatedCashRisk:actualCashRisk});
+        outcomes.push({userId,status:"filled",positionId:String(position.positionId),volume:actualVolume/100,estimatedCashRisk:actualCashRisk});
       }finally{try{ws.close(1000,"Bot scan complete");}catch{/* closed */}}
     }catch(e){
       const message=e instanceof Error?e.message:"Unknown bot execution error";
