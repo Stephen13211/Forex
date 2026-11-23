@@ -8,7 +8,7 @@ export function requiredEnv(name: string): string {
 
 export function supabaseAdmin() {
   return createClient(requiredEnv("SUPABASE_URL"), requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
-    db: { schema: "private" },
+    db: { schema: "public" },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
