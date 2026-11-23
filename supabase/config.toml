@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.ctrader-accounts]
 verify_jwt = true
+
+[functions.ctrader-market-data]
+verify_jwt = true
