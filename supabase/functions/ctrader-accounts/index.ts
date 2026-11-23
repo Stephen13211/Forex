@@ -163,7 +163,8 @@ Deno.serve(async (req) => {
           return json({ error: "cTrader returned a different account ID during authentication. No account was linked.", stage: "account_auth" });
         }
         const traderResult = await sendAndWait(ws, 2121, { ctidTraderAccountId: Number(selected.account_id) }, 2122);
-        const accessRights = Number(traderResult.payload?.trader?.accessRights);
+        const trader = (traderResult.payload?.trader ?? {}) as Record<string, unknown>;
+        const accessRights = Number(trader.accessRights);
         if (accessRights !== 0) {
           return json({ error: "The Deriv demo account is not granted FULL_ACCESS trading rights. No account was linked.", stage: "account_permissions" });
         }
