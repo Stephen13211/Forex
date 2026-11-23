@@ -53,9 +53,7 @@ jobs:
           node-version: 22
 
       - name: Type-check Expo application
-        run: |
-          npm install --legacy-peer-deps --no-package-lock --no-audit --no-fund
-          npm run typecheck
+        run: deno task typecheck
 
       - name: Deploy cTrader OAuth start function
         env:
