@@ -48,6 +48,16 @@ async function accessToken(admin:ReturnType<typeof supabaseAdmin>,row:Record<str
   if(error)throw error;
   return token;
 }
+function isSessionOpen(now:Date):boolean{
+  const inWindow=(timeZone:string,startHour:number,endHour:number)=>{
+    const parts=new Intl.DateTimeFormat("en-US",{timeZone,weekday:"short",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(now);
+    const values=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+    if(values.weekday==="Sat"||values.weekday==="Sun")return false;
+    const minute=Number(values.hour)*60+Number(values.minute);
+    return minute>=startHour*60&&minute<endHour*60;
+  };
+  return inWindow("Europe/London",7,17)||inWindow("America/New_York",8,17);
+}
 function decodeBars(raw:unknown):Candle[]{
   if(!Array.isArray(raw))return [];
   return raw.map((item:any)=>({
@@ -121,10 +131,12 @@ Deno.serve(async(req)=>{
     const freshWindows={h4:8*60*60*1000,h1:2*60*60*1000,m15:30*60*1000,m5:10*60*1000} as const;
     const candlesFresh=(Object.keys(candles) as (keyof typeof freshWindows)[]).every(key=>candles[key].length>0&&now-candles[key].at(-1)!.time<=freshWindows[key]);
     const quoteFresh=now-spotTimestamp<=120000&&now>=spotTimestamp;
+    const sessionOpen=isSessionOpen(new Date(now));
     const dataReady=barsReady&&candlesFresh&&quoteFresh;
     const rawStrategy=dataReady?evaluateGoldSetup({h4:candles.h4,h1:candles.h1,m15:candles.m15,m5:candles.m5}):null;
     let strategy=rawStrategy;
     if(strategy&&((openPositions.length+pendingOrders.length)>0))strategy={...strategy,direction:"none",status:"no_trade",entry:null,stop:null,target:null,reasons:[...strategy.reasons,"An existing broker position or pending order blocks new entries."]};
+    if(strategy&&strategy.direction!=="none"&&!sessionOpen)strategy={...strategy,direction:"none",status:"no_trade",entry:null,stop:null,target:null,reasons:[...strategy.reasons,"Outside the London and New York trading sessions."]};
     if(strategy&&strategy.direction!=="none"&&strategy.atrM15&&ask-bid>strategy.atrM15*0.1)strategy={...strategy,direction:"none",status:"no_trade",entry:null,stop:null,target:null,reasons:[...strategy.reasons,"Current XAUUSD spread exceeds 10% of M15 ATR."]};
     if(!candlesFresh)strategy=null;
     const result={
@@ -132,7 +144,7 @@ Deno.serve(async(req)=>{
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null},
       account:{balance,moneyDigits,leverage:trader.leverageInCents??null},
-      quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,candlesFresh,quoteFresh,receivedAt:new Date().toISOString(),dataReady
+      quote:{bid,ask,spread:ask-bid,timestamp:spotTimestamp},candles,strategy,openPositions,pendingOrders,candlesFresh,quoteFresh,sessionOpen,receivedAt:new Date().toISOString(),dataReady
     };
     await admin.from("ctrader_accounts").update({symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
     return json(result);
