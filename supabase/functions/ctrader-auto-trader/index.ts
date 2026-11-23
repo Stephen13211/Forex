@@ -24,7 +24,7 @@ function waitFor(ws:WebSocket,type:number,id:string,timeout=15000):Promise<Msg>{
     ws.addEventListener("message",onMessage);ws.addEventListener("error",onError);ws.addEventListener("close",onClose);
   });
 }
-async function req(ws:WebSocket,type:number,payload:Record<string,unknown>,responseType:number){
+async function ctraderRequest(ws:WebSocket,type:number,payload:Record<string,unknown>,responseType:number){
   const id=crypto.randomUUID();const p=waitFor(ws,responseType,id);ws.send(JSON.stringify({payloadType:type,payload,clientMsgId:id}));return (await p).payload??{};
 }
 async function freshToken(admin:ReturnType<typeof supabaseAdmin>,row:Record<string,unknown>){
@@ -102,10 +102,10 @@ Deno.serve(async(req)=>{
       const ws=new WebSocket("wss://demo.ctraderapi.com:5036");
       await new Promise<void>((resolve,reject)=>{const t=setTimeout(()=>reject(new Error("cTrader demo connection timeout")),10000);ws.addEventListener("open",()=>{clearTimeout(t);resolve();},{once:true});ws.addEventListener("error",()=>{clearTimeout(t);reject(new Error("cTrader demo connection failed"));},{once:true});});
       try{
-        await req(ws,2100,{clientId:requiredEnv("CTRADER_CLIENT_ID"),clientSecret:requiredEnv("CTRADER_CLIENT_SECRET")},2101);
-        const auth=await req(ws,2102,{ctidTraderAccountId:accountId,accessToken:token},2103);
+        await ctraderRequest(ws,2100,{clientId:requiredEnv("CTRADER_CLIENT_ID"),clientSecret:requiredEnv("CTRADER_CLIENT_SECRET")},2101);
+        const auth=await ctraderRequest(ws,2102,{ctidTraderAccountId:accountId,accessToken:token},2103);
         if(String(auth.ctidTraderAccountId??"")!==String(accountId))throw new Error("Broker account identity mismatch");
-        const rec=await req(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
+        const rec=await ctraderRequest(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
         if((rec.position?.length??0)>0||(rec.order?.length??0)>0)throw new Error("A broker position/order appeared during the scan; refusing duplicate entry");
         const relativeSL=Math.round(stopDistance*100000),relativeTP=Math.round(targetDistance*100000);
         if(!(relativeSL>0&&relativeTP>=relativeSL*2))throw new Error("Invalid relative protection distances");
@@ -121,14 +121,14 @@ Deno.serve(async(req)=>{
         if(execution!==3)throw new Error("Order event was not confirmed as FILLED; no success assumed");
         const position=ep.position as Record<string,unknown>|undefined;
         if(!position?.positionId)throw new Error("Broker fill event did not include a position ID");
-        const verified=await req(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
+        const verified=await ctraderRequest(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
         const opened=(verified.position??[]) as Record<string,unknown>[];
         const live=opened.find(p=>String(p.positionId)===String(position.positionId));
         if(!live||!num(live.stopLoss)||!num(live.takeProfit)){
           const closeId=crypto.randomUUID();const closePromise=waitFor(ws,2126,closeId,15000);
           ws.send(JSON.stringify({payloadType:2111,clientMsgId:closeId,payload:{ctidTraderAccountId:accountId,positionId:num(position.positionId),volume:num(live?.volume??position.volume??volume)}}));
           await closePromise;
-          const afterClose=await req(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
+          const afterClose=await ctraderRequest(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
           const stillOpen=((afterClose.position??[]) as Record<string,unknown>[]).some(p=>String(p.positionId)===String(position.positionId));
           if(stillOpen)throw new Error("CRITICAL: broker position opened without verified protection and emergency close was not confirmed");
           throw new Error("Broker position lacked verified SL/TP; emergency close confirmed and no trade was retained");
