@@ -9,3 +9,6 @@ verify_jwt = true
 
 [functions.ctrader-market-data]
 verify_jwt = true
+
+[functions.ctrader-auto-trader]
+verify_jwt = true
