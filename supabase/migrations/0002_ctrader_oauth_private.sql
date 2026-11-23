@@ -1,5 +1,4 @@
--- Private cTrader OAuth storage. Apply after 0001_initial_schema.sql.
-create schema if not exists private;
+-- Locked-down cTrader OAuth storage. Apply after 0001_initial_schema.sql.
 revoke all on schema public from public, anon, authenticated;
 grant usage on schema public to service_role;
 
