@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     const payload = await connectDemo(accessToken);
     const granted = Array.isArray(payload.ctidTraderAccount) ? payload.ctidTraderAccount as Record<string, unknown>[] : [];
     const eligible = granted.filter((account) =>
-      account.isLive !== true &&
+      account.isLive === false &&
       typeof account.ctidTraderAccountId !== "undefined" &&
       String(account.brokerTitleShort ?? "").toLowerCase().includes("deriv")
     ).map((account) => ({
