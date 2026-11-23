@@ -7,8 +7,11 @@ verify_jwt = false
 [functions.ctrader-accounts]
 verify_jwt = true
 
+# These endpoints perform their own authentication in the function code:
+# market-data validates a Supabase user session or the internal service secret;
+# auto-trader requires an exact service-role bearer token match.
 [functions.ctrader-market-data]
-verify_jwt = true
+verify_jwt = false
 
 [functions.ctrader-auto-trader]
-verify_jwt = true
+verify_jwt = false
