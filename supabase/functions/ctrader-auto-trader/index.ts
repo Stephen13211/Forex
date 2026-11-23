@@ -117,8 +117,8 @@ Deno.serve(async(req)=>{
           label:"GoldHunterAI-Demo",timeInForce:4
         }}));
         const event=await eventPromise;const ep=event.payload??{};
-        const execution=String(ep.executionType??"").toUpperCase();
-        if(!execution.includes("FILL"))throw new Error("Order event was not confirmed as FILLED; no success assumed");
+        const execution=Number(ep.executionType??0);
+        if(execution!==3)throw new Error("Order event was not confirmed as FILLED; no success assumed");
         const position=ep.position as Record<string,unknown>|undefined;
         if(!position?.positionId)throw new Error("Broker fill event did not include a position ID");
         const verified=await req(ws,2124,{ctidTraderAccountId:accountId,returnProtectionOrders:false},2125);
