@@ -1,0 +1,5 @@
+[functions.ctrader-oauth-start]
+verify_jwt = true
+
+[functions.ctrader-oauth-callback]
+verify_jwt = false
