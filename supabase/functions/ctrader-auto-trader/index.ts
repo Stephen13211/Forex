@@ -58,6 +58,14 @@ Deno.serve(async(req)=>{
       }
       const {data:account,error:accountError}=await admin.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status,account_currency").eq("user_id",userId).eq("environment","demo").eq("connection_status","connected").maybeSingle();
       if(accountError||!account){outcomes.push({userId,status:"blocked",reason:"No connected Deriv demo account"});continue;}
+      const brokerCurrency=String(account.account_currency??"").trim().toUpperCase();
+      const configuredCurrency=String(risk.account_currency??"").trim().toUpperCase();
+      if(!/^[A-Z]{3,8}$/.test(brokerCurrency)||configuredCurrency!==brokerCurrency){
+        outcomes.push({userId,status:"blocked",reason:brokerCurrency
+          ?`Risk amounts are not confirmed in the broker deposit currency (${brokerCurrency}). Save risk settings again after the account currency is displayed.`
+          :"The broker deposit currency has not been verified. No order is allowed."});
+        continue;
+      }
       const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",userId).maybeSingle();
       if(tokenError||!tokenRow)throw new Error("Encrypted cTrader token unavailable");
       const market=await fetch(requiredEnv("SUPABASE_URL")+"/functions/v1/ctrader-market-data",{method:"POST",headers:{"content-type":"application/json","x-internal-bot-secret":requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),"Authorization":`Bearer ${requiredEnv("SUPABASE_SERVICE_ROLE_KEY")}`,"apikey":requiredEnv("SUPABASE_SERVICE_ROLE_KEY")},body:JSON.stringify({user_id:userId})});
@@ -96,8 +104,10 @@ Deno.serve(async(req)=>{
       }
       // XAUUSD is quoted in USD. We only size automatically when the broker confirms
       // the account deposit asset is the same USD quote asset. Never guess FX conversion.
-      if(!data.symbol?.quoteAssetId||!data.account?.depositAssetId||String(data.symbol.quoteAssetId)!==String(data.account.depositAssetId)){
-        outcomes.push({userId,status:"blocked",reason:"Account currency conversion is not verified; order skipped rather than risking an incorrect cash amount"});continue;
+      if(!data.symbol?.quoteAssetId||!data.account?.depositAssetId||
+        String(data.symbol.quoteAssetId)!==String(data.account.depositAssetId)||
+        String(data.account?.currency??"").toUpperCase()!==brokerCurrency){
+        outcomes.push({userId,status:"blocked",reason:"XAUUSD quote currency and verified account deposit currency do not match; no unverified FX conversion is allowed."});continue;
       }
       const lotSize=num(data.symbol.lotSize),digits=num(data.symbol.digits),minVolume=num(data.symbol.minVolume),stepVolume=num(data.symbol.stepVolume),maxVolume=num(data.symbol.maxVolume);
       const measurementUnits=String(data.symbol.measurementUnits??"").trim().toUpperCase();
