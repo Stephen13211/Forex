@@ -88,13 +88,18 @@ Deno.serve(async(req)=>{
       }
       const lotSize=num(data.symbol.lotSize),digits=num(data.symbol.digits),minVolume=num(data.symbol.minVolume),stepVolume=num(data.symbol.stepVolume),maxVolume=num(data.symbol.maxVolume);
       const measurementUnits=String(data.symbol.measurementUnits??"").trim().toUpperCase();
-      const executableEntry=s.direction==="buy"?num(data.quote?.ask):num(data.quote?.bid);\n      const structuralStop=num(s.stop),structuralTarget=num(s.target);\n      const stopDistance=s.direction==="buy"?executableEntry-structuralStop:structuralStop-executableEntry;\n      const targetDistance=s.direction==="buy"?structuralTarget-executableEntry:executableEntry-structuralTarget;
+      const executableEntry=s.direction==="buy"?num(data.quote?.ask):num(data.quote?.bid);
+      const structuralStop=num(s.stop),structuralTarget=num(s.target);
+      const stopDistance=s.direction==="buy"?executableEntry-structuralStop:structuralStop-executableEntry;
+      const targetDistance=s.direction==="buy"?structuralTarget-executableEntry:executableEntry-structuralTarget;
       
       const cashRisk=num(risk.cash_risk_per_trade);
       if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits==="OZ")){
         outcomes.push({userId,status:"blocked",reason:"Broker contract or structural stop/target data is invalid"});continue;
       }
-      // cTrader volume is hundredths of the symbol base unit. With XAUUSD\n      // measurementUnits=OZ and USD quote/deposit assets matched, one unit is\n      // one troy ounce: a $1 stop distance risks $1 per unit. Refuse any other unit.
+      // cTrader volume is hundredths of the symbol base unit. With XAUUSD
+      // measurementUnits=OZ and USD quote/deposit assets matched, one unit is
+      // one troy ounce: a $1 stop distance risks $1 per unit. Refuse any other unit.
       const rawProtocolVolume=cashRisk/(stopDistance*0.01);
       const volume=Math.floor(Math.min(rawProtocolVolume,maxVolume)/stepVolume)*stepVolume;
       const estimatedRisk=(volume/100)*stopDistance;
