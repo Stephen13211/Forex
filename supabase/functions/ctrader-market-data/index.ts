@@ -123,9 +123,10 @@ Deno.serve(async(req)=>{
     const spotEventPromise=waitFor(ws,2131,"",10000);
     await request(ws,2127,{ctidTraderAccountId:Number(accountId),symbolId:[symbolId],subscribeToSpotTimestamp:true},2128);
     const spotEvent=await spotEventPromise;
-    const bid=Number(spotEvent.bid??0)/100000;
-    const ask=Number(spotEvent.ask??0)/100000;
-    const spotTimestamp=Number(spotEvent.timestamp??0);
+    const spotPayload=spotEvent.payload??{};
+    const bid=Number(spotPayload.bid??0)/100000;
+    const ask=Number(spotPayload.ask??0)/100000;
+    const spotTimestamp=Number(spotPayload.timestamp??0);
     if(!(bid>0&&ask>=bid&&spotTimestamp>0))throw new Error("cTrader did not return a valid, timestamped XAUUSD bid/ask quote.");
     const periods=[{key:"h4",period:10,from:now-100*24*60*60*1000},{key:"h1",period:9,from:now-25*24*60*60*1000},{key:"m15",period:7,from:now-7*24*60*60*1000},{key:"m5",period:5,from:now-3*24*60*60*1000}] as const;
     const candles:Record<string,Candle[]>={};
