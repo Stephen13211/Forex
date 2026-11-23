@@ -86,6 +86,9 @@ Deno.serve(async(req)=>{
     await request(ws,2100,{clientId:requiredEnv("CTRADER_CLIENT_ID"),clientSecret:requiredEnv("CTRADER_CLIENT_SECRET")},2101);
     const auth=await request(ws,2102,{ctidTraderAccountId:Number(accountId),accessToken:token},2103);
     if(String(auth.ctidTraderAccountId??"")!==accountId)throw new Error("cTrader account authentication returned a mismatched account ID.");
+    const reconcile=await request(ws,2124,{ctidTraderAccountId:Number(accountId),returnProtectionOrders:false},2125);
+    const openPositions=Array.isArray(reconcile.position)?reconcile.position:[];
+    const pendingOrders=Array.isArray(reconcile.order)?reconcile.order:[];
     const traderResponse=await request(ws,2121,{ctidTraderAccountId:Number(accountId)},2122);
     const trader=(traderResponse.trader??{}) as Record<string,unknown>;
     const symbolsResponse=await request(ws,2114,{ctidTraderAccountId:Number(accountId),includeArchivedSymbols:false},2115);
@@ -114,7 +117,7 @@ Deno.serve(async(req)=>{
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null},
       account:{balance,moneyDigits,leverage:trader.leverageInCents??null},
-      candles,strategy,receivedAt:new Date().toISOString(),dataReady
+      candles,strategy,openPositions,pendingOrders,receivedAt:new Date().toISOString(),dataReady
     };
     await admin.from("ctrader_accounts").update({symbol_name:String(detail.symbolName??symbol.symbolName),last_synced_at:new Date().toISOString(),connection_status:"connected"}).eq("ctrader_account_id",accountId);
     return json(result);
