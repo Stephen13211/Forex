@@ -171,7 +171,6 @@ Deno.serve(async (req) => {
       environment: "demo",
       connection_status: "connected",
       last_synced_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     }, { onConflict: "ctrader_account_id" });
     if (saveError) throw saveError;
 
