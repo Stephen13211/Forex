@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
 
     const accessToken = await getValidAccessToken(admin, tokenRow);
     const payload = await connectDemo(accessToken);
-    if (Number(payload.permissionScope) !== 1) {
+    if (!(payload.permissionScope === 1 || payload.permissionScope === "SCOPE_TRADE")) {
       return json({ error: "cTrader authorisation is view-only. Reconnect and choose the permission to access your accounts and trade." }, 403);
     }
     const granted = Array.isArray(payload.ctidTraderAccount) ? payload.ctidTraderAccount as Record<string, unknown>[] : [];
@@ -164,8 +164,8 @@ Deno.serve(async (req) => {
         }
         const traderResult = await sendAndWait(ws, 2121, { ctidTraderAccountId: Number(selected.account_id) }, 2122);
         const trader = (traderResult.payload?.trader ?? {}) as Record<string, unknown>;
-        const accessRights = Number(trader.accessRights);
-        if (accessRights !== 0) {
+        const accessRights = trader.accessRights;
+        if (!(accessRights === 0 || accessRights === "FULL_ACCESS")) {
           return json({ error: "The Deriv demo account is not granted FULL_ACCESS trading rights. No account was linked.", stage: "account_permissions" });
         }
       } catch (authError) {
