@@ -80,4 +80,4 @@ jobs:
       - name: Deploy scheduled demo auto-trader
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: npx --yes supabase@latest functions deploy ctrader-auto-trader --project-ref onrajhrabqtotiedgsxh --yes
+        run: npx --yes supabase@latest functions deploy ctrader-auto-trader --project-ref onrajhrabqtotiedgsxh --no-verify-jwt --yes
