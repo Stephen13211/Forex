@@ -28,10 +28,10 @@ create table if not exists public.risk_settings (
   daily_loss_limit_cash numeric(18,2) check (daily_loss_limit_cash is null or daily_loss_limit_cash > 0),
   weekly_loss_limit_cash numeric(18,2) check (weekly_loss_limit_cash is null or weekly_loss_limit_cash > 0),
   max_open_positions integer not null default 1 check (max_open_positions = 1),
-  max_consecutive_losses integer not null default 2 check (max_consecutive_losses = 2),
+  max_consecutive_losses integer not null default 3 check (max_consecutive_losses = 3),
   minimum_reward_risk numeric(5,2) not null default 2.0 check (minimum_reward_risk >= 2.0),
   demo_only boolean not null default true check (demo_only = true),
-  trading_enabled boolean not null default false check (trading_enabled = false),
+  trading_enabled boolean not null default false check (trading_enabled in (true,false)),
   updated_at timestamptz not null default now()
 );
 
