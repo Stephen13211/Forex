@@ -1,5 +1,5 @@
 import { decryptSecret, encryptSecret, json, requiredEnv, supabaseAdmin } from "../_shared/ctrader.ts";
-import { sizeXauUsdVolumeWithFees, estimateXauUsdRoundTurnCommission } from "../_shared/broker-risk.ts";
+import { estimateXauUsdRoundTurnCommission } from "../_shared/broker-risk.ts";
 
 type Msg={payloadType?:number;payload?:Record<string,unknown>;clientMsgId?:string};
 function waitFor(ws:WebSocket,type:number,id:string,timeout=15000):Promise<Msg>{
@@ -59,9 +59,8 @@ Deno.serve(async(req)=>{
       const {data:locked,error:lockError}=await admin.rpc("acquire_ctrader_bot_lock",{p_user_id:userId,p_lock_token:lock,p_ttl_seconds:120});
       if(lockError||!locked){outcomes.push({userId,status:"skipped",reason:"Another bot scan is already running"});continue;}
       const {data:risk,error:riskError}=await admin.from("risk_settings").select("*").eq("user_id",userId).maybeSingle();
-      if(riskError||!risk||risk.demo_only!==true||risk.trading_enabled!==true||
-        !(num(risk.cash_risk_per_trade)>0)||!(num(risk.daily_loss_limit_cash)>0)||!(num(risk.weekly_loss_limit_cash)>0)){
-        await note("blocked","Trading must be explicitly enabled and fixed trade, daily and weekly cash-risk limits must be configured");continue;
+      if(riskError||!risk||risk.demo_only!==true||risk.trading_enabled!==true||!(num(risk.lot_size)>0)){
+        await note("blocked","Choose a valid lot size and explicitly enable DEMO trading before scanning");continue;
       }
       const {data:account,error:accountError}=await admin.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status,account_currency").eq("user_id",userId).eq("environment","demo").eq("connection_status","connected").maybeSingle();
       if(accountError||!account){await note("blocked","No connected Deriv demo account");continue;}
@@ -97,18 +96,13 @@ Deno.serve(async(req)=>{
       const dayStart=new Date(localMidnightUtc).toISOString();
       const weekday=(johannesburgNow.getUTCDay()+6)%7;
       const weekStart=new Date(localMidnightUtc-weekday*24*60*60*1000).toISOString();
-      const {data:daily,error:dailyError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",dayStart);
-      const {data:weekly,error:weeklyError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",weekStart);
       const {data:lastClosed,error:lastError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",dayStart).order("closed_at",{ascending:false}).limit(3);
-      if(dailyError||weeklyError||lastError)throw new Error("Could not verify daily/weekly loss limits and consecutive losses");
+      if(lastError)throw new Error("Could not verify the consecutive-loss safety pause");
       const net=(t:Record<string,unknown>)=>num(t.profit??0)-Math.abs(num(t.commission??0))-Math.abs(num(t.swap??0));
-      const dailyLoss=Math.max(0,-(daily??[]).reduce((a,t)=>a+net(t),0));
-      const weeklyLoss=Math.max(0,-(weekly??[]).reduce((a,t)=>a+net(t),0));
-      // Pause only after three consecutive losing trades closed during today's
-      // South African trading day. A win resets the streak; a new day starts fresh.
+      // Keep a pause after three consecutive losses today; daily/weekly cash caps are removed.
       const consecutiveLosses=(lastClosed??[]).length>=3&&(lastClosed??[]).every(t=>net(t)<0)?3:0;
-      if(dailyLoss>=num(risk.daily_loss_limit_cash)||weeklyLoss>=num(risk.weekly_loss_limit_cash)||consecutiveLosses>=3){
-        await note("blocked",consecutiveLosses>=3?"Three consecutive losing trades today; trading paused until the next South African day.":"Daily/weekly cash loss limit reached; bot paused");continue;
+      if(consecutiveLosses>=3){
+        await note("blocked","Three consecutive losing trades today; trading paused until the next South African day.");continue;
       }
       // XAUUSD is quoted in USD. We only size automatically when the broker confirms
       // the account deposit asset is the same USD quote asset. Never guess FX conversion.
@@ -124,29 +118,28 @@ Deno.serve(async(req)=>{
       const stopDistance=s.direction==="buy"?executableEntry-structuralStop:structuralStop-executableEntry;
       const targetDistance=s.direction==="buy"?structuralTarget-executableEntry:executableEntry-structuralTarget;
       
-      const cashRisk=num(risk.cash_risk_per_trade);
-      // Quote and deposit assets were verified identical above, so no quote-to-deposit
-      // conversion fee applies. Include supported cTrader commission schedules in sizing.
-      if(num(data.symbol.minCommission??0)>0&&data.symbol.preciseMinCommission==null){
-        await note("blocked","Broker minimum commission is positive but its precise value is missing; no order is allowed.");
-        continue;
+      const selectedLots=num(risk.lot_size);
+      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits.includes("OZ")&&selectedLots>0)){
+        await note("blocked","Broker contract, selected lot size or structural stop/target data is invalid");continue;
       }
-      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits.includes("OZ"))){
-        await note("blocked","Broker contract or structural stop/target data is invalid");continue;
+      // Convert the user's selected lots to cTrader protocol volume. Never silently
+      // resize the user's choice: reject values outside broker limits or off its step.
+      const rawVolume=selectedLots*lotSize;
+      const volume=Math.round(rawVolume/stepVolume)*stepVolume;
+      if(!(Number.isFinite(volume)&&volume>=minVolume&&volume<=maxVolume&&Math.abs(volume-rawVolume)<=Math.max(1e-6,stepVolume*1e-6))){
+        await note("blocked","Selected lot size does not fit this broker's permitted volume range/step.",{selectedLots,minVolume,maxVolume,stepVolume});continue;
       }
-      // cTrader volume and lotSize are both protocol cents. Price loss and estimated
-      // opening + closing commission must fit inside the configured cash-risk cap.
-      const sizing=sizeXauUsdVolumeWithFees({
-        cashRisk,stopDistance,entryPrice:Math.max(executableEntry,structuralStop),minVolume,maxVolume,volumeStep:stepVolume,
-        lotSizeProtocol:lotSize,accountCurrency:brokerCurrency,quoteCurrency:brokerCurrency,
+      const commissionEstimate=estimateXauUsdRoundTurnCommission({
+        volumeProtocol:volume,entryPrice:Math.max(executableEntry,structuralStop),lotSizeProtocol:lotSize,
+        accountCurrency:brokerCurrency,quoteCurrency:brokerCurrency,
         commissionType:data.symbol.commissionType==null?null:num(data.symbol.commissionType),
         preciseTradingCommissionRate:data.symbol.preciseTradingCommissionRate==null?null:num(data.symbol.preciseTradingCommissionRate),
         preciseMinCommission:data.symbol.preciseMinCommission==null?null:num(data.symbol.preciseMinCommission),
         minCommissionType:data.symbol.minCommissionType==null?null:num(data.symbol.minCommissionType),
         minCommissionAsset:data.symbol.minCommissionAsset==null?null:String(data.symbol.minCommissionAsset)
       });
-      if(!sizing.ok){await note("blocked",sizing.reason);continue;}
-      const volume=sizing.volume;
+      if(!commissionEstimate.ok){await note("blocked",commissionEstimate.reason);continue;}
+      const estimatedCashRisk=stopDistance*(volume/100)+commissionEstimate.roundTurn;
       const token=await freshToken(admin,tokenRow);const accountId=num(account.ctrader_account_id);
       const ws=new WebSocket("wss://demo.ctraderapi.com:5036");
       await new Promise<void>((resolve,reject)=>{const t=setTimeout(()=>reject(new Error("cTrader demo connection timeout")),10000);ws.addEventListener("open",()=>{clearTimeout(t);resolve();},{once:true});ws.addEventListener("error",()=>{clearTimeout(t);reject(new Error("cTrader demo connection failed"));},{once:true});});
@@ -221,7 +214,7 @@ Deno.serve(async(req)=>{
         });
         const priceRisk=actualStopDistance*(actualVolume/100);
         const actualCashRisk=actualCommission.ok?priceRisk+actualCommission.roundTurn:Number.POSITIVE_INFINITY;
-        if(!(actualVolume>0&&actualEntry>0&&protectionValid&&Number.isFinite(actualCashRisk)&&actualCashRisk<=cashRisk+0.000001)){
+        if(!(actualVolume>0&&actualEntry>0&&protectionValid&&Number.isFinite(actualCashRisk))){
           const closeId=crypto.randomUUID();const closePromise=waitFor(ws,2126,closeId,15000);
           ws.send(JSON.stringify({payloadType:2111,clientMsgId:closeId,payload:{ctidTraderAccountId:accountId,positionId:num(position.positionId),volume:actualVolume>0?actualVolume:volume}}));
           await closePromise;
@@ -237,7 +230,7 @@ Deno.serve(async(req)=>{
           strategy_score:num(s.score),is_demo:true,status:"open",opened_at:new Date().toISOString()
         });
         if(historyError)throw historyError;
-        await note("filled","Demo order filled with broker-verified SL/TP",{positionId:String(position.positionId),volume:actualVolume/100,estimatedCashRisk:actualCashRisk});
+        await note("filled","Demo order filled with broker-verified structural SL/TP",{positionId:String(position.positionId),volume:actualVolume/100,lots:actualVolume/lotSize,estimatedCashRisk:actualCashRisk});
       }finally{try{ws.close(1000,"Bot scan complete");}catch{/* closed */}}
     }catch(e){
       const message=e instanceof Error?e.message:"Unknown bot execution error";
