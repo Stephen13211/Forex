@@ -4,9 +4,9 @@ import { supabase } from "../lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 
 const GOLD="#E9C451", BG="#0B0E10", PANEL="#151820", MUTED="#8791A4", WHITE="#F4F5F7";
-type Tab="Home"|"Chart"|"Strategy"|"Risk"|"History"|"cTrader"|"Profile";
-const tabs:Tab[]=["Home","Chart","Strategy","Risk","History","cTrader","Profile"];
-const iconMap:any={Home:"grid",Chart:"candlestick",Strategy:"options",Risk:"shield-checkmark",History:"time",cTrader:"link",Profile:"person-circle"};
+type Tab="Home"|"Chart"|"Strategy"|"Risk"|"History"|"Logs"|"cTrader"|"Profile";
+const tabs:Tab[]=["Home","Chart","Strategy","Risk","History","Logs","cTrader","Profile"];
+const iconMap:any={Home:"grid",Chart:"candlestick",Strategy:"options",Risk:"shield-checkmark",History:"time",Logs:"list",cTrader:"link",Profile:"person-circle"};
 function Card({children}:{children:any}){return <View style={s.card}>{children}</View>}
 function Heading({children}:{children:any}){return <Text style={s.heading}>{children}</Text>}
 function Metric({label,value,sub}:{label:string;value:string;sub?:string}){return <View style={s.metric}><Text style={s.muted}>{label}</Text><Text style={s.metricValue}>{value}</Text>{sub?<Text style={s.muted}>{sub}</Text>:null}</View>}
@@ -246,6 +246,57 @@ function TradeHistoryPanel(){
 }
 
 
+function ScannerLogsPanel(){
+ const [rows,setRows]=useState<any[]>([]);
+ const [filter,setFilter]=useState<"all"|"skipped"|"trades"|"errors">("all");
+ const [busy,setBusy]=useState(false);
+ const [message,setMessage]=useState("Loading recent scanner evaluations…");
+ async function load(){
+  setBusy(true);
+  const {data:{user}}=await supabase.auth.getUser();
+  if(!user){setBusy(false);setMessage("Sign in to view your private scanner logs.");return;}
+  const {data,error}=await supabase.from("ctrader_bot_runs")
+   .select("id,symbol,environment,status,reason,details,started_at,finished_at")
+   .eq("user_id",user.id)
+   .order("started_at",{ascending:false})
+   .limit(100);
+  setBusy(false);
+  if(error){setMessage("Scanner logs could not be loaded: "+error.message);return;}
+  setRows(data??[]);
+  setMessage(data?.length?"Showing the latest "+data.length+" scanner events. Pull refresh to check again.":"No scanner events recorded yet. Start the DEMO scanner and check again after its next scheduled scan.");
+ }
+ useEffect(()=>{void load();},[]);
+ const visible=rows.filter(row=>{
+  if(filter==="skipped")return row.status==="no_trade"||row.status==="blocked";
+  if(filter==="trades")return row.status==="filled"||row.status==="order_submitted";
+  if(filter==="errors")return row.status==="failed";
+  return true;
+ });
+ const counts={all:rows.length,skipped:rows.filter(r=>r.status==="no_trade"||r.status==="blocked").length,trades:rows.filter(r=>r.status==="filled"||r.status==="order_submitted").length,errors:rows.filter(r=>r.status==="failed").length};
+ return <Card>
+  <Heading>Trade scanner logs</Heading>
+  <Text style={s.body}>Every recorded DEMO scan outcome appears here, including rejected setups and the reason the bot did not enter. These are scanner audit events, not guaranteed trade signals.</Text>
+  <Pressable disabled={busy} onPress={()=>void load()} style={[s.authButton,{backgroundColor:"#252B36"},busy&&{opacity:.5}]}><Text style={[s.authButtonText,{color:GOLD}]}>{busy?"REFRESHING…":"REFRESH SCANNER LOGS"}</Text></Pressable>
+  <Text style={s.authMessage}>{message}</Text>
+  <View style={{flexDirection:"row",flexWrap:"wrap",gap:7,marginVertical:10}}>
+   {(["all","skipped","trades","errors"] as const).map(key=><Pressable key={key} onPress={()=>setFilter(key)} style={{borderWidth:1,borderColor:filter===key?GOLD:"#414958",backgroundColor:filter===key?"#302A18":"#10141B",borderRadius:18,paddingHorizontal:11,paddingVertical:8}}><Text style={{color:filter===key?GOLD:WHITE,fontSize:11,fontWeight:"800"}}>{key.toUpperCase()} · {counts[key]}</Text></Pressable>)}
+  </View>
+  {!visible.length?<Text style={s.muted}>No events in this category yet.</Text>:visible.map(row=>{
+   const status=String(row.status??"unknown").toUpperCase().replace("_"," ");
+   const when=row.finished_at??row.started_at;
+   const details=row.details&&Object.keys(row.details).length?JSON.stringify(row.details,null,2):"";
+   return <View key={row.id} style={{paddingVertical:13,borderTopWidth:1,borderColor:"#282F3B"}}>
+    <Row label={String(row.symbol??"XAUUSD")+" · "+String(row.environment??"demo").toUpperCase()} value={status}/>
+    {row.reason?<Text style={{color:"#F0D48A",fontSize:13,lineHeight:20,marginTop:5}}>Reason: {String(row.reason)}</Text>:<Text style={s.muted}>No reason text was recorded for this event.</Text>}
+    {details?<View style={{backgroundColor:"#0E1218",borderRadius:10,padding:10,marginTop:9}}><Text style={{color:MUTED,fontSize:10,fontWeight:"800",marginBottom:5}}>SCAN DETAILS</Text><Text selectable style={{color:"#C0C6D1",fontSize:10,lineHeight:16}}>{details}</Text></View>:null}
+    <Text style={[s.muted,{marginTop:8}]}>{when?new Date(when).toLocaleString():"Time unavailable"}</Text>
+   </View>;
+  })}
+  <Text style={[s.muted,{marginTop:8}]}>Showing up to 100 most recent events. Logs are private to your signed-in account.</Text>
+ </Card>;
+}
+
+
 function HomeDashboard(){
  const [broker,setBroker]=useState("CHECKING"),[risk,setRisk]=useState("NOT CONFIGURED"),[bot,setBot]=useState("STOPPED"),[execution,setExecution]=useState("LOCKED");
  useEffect(()=>{let active=true;(async()=>{
@@ -274,6 +325,7 @@ function Screen({tab}:{tab:Tab}){
  if(tab==="Strategy")return <><Card><Heading>Gold Hunter strategy</Heading><Text style={s.body}>Strict trend-following pullback strategy. H4 and H1 must agree; disagreement, unclear structure or stale data means NO TRADE.</Text><Row label="H4" value="Primary direction"/><Row label="H1" value="Must confirm H4"/><Row label="M15" value="Pullback + structure break"/><Row label="M5" value="Entry confirmation"/><Row label="EMA filters" value="50 / 200"/><Row label="Minimum reward:risk" value="1 : 2"/><Row label="Quality threshold" value="100 / 100"/></Card><Card><Heading>Setup checklist</Heading>{["H4 and H1 structure agree (HH/HL for buys; LH/LL for sells)","Price pulls back into a valid H1/M15 support or resistance zone","EMA50 / EMA200 and trendline confluence support direction","Liquidity sweep is confirmed, not assumed","M15 candle closes through the relevant structure level","M5 confirms direction or a retest before entry","There is clear room to target and at least 2R after costs","Spread, ATR, session, news and risk gates all pass"].map((x,i)=><Row key={i} label={x} value="REQUIRED"/>)} </Card><Card><Heading>Quality scoring · all mandatory gates (100/100)</Heading><Row label="H4/H1 alignment" value="20"/><Row label="H1 market structure" value="10"/><Row label="M15 pullback into zone" value="15"/><Row label="Trendline confluence" value="10"/><Row label="Liquidity sweep" value="10"/><Row label="M15 structure break" value="15"/><Row label="M5 confirmation" value="10"/><Row label="R:R and target room" value="10"/><Text style={s.muted}>Score is a ranking heuristic, not a probability of winning. Mandatory safety gates cannot be overridden by a high score.</Text></Card><Card><Heading>Automatic filters</Heading>{["London and New York session windows","Maximum spread and abnormal spread expansion","ATR volatility range","Avoid sideways or overextended markets","Previous day/week highs and lows; Asian range","High-impact USD news blackout","No stale prices or duplicate orders"].map((x,i)=><Row key={i} label={x} value="PLANNED"/>)} </Card></>;
  if(tab==="Risk")return <RiskSettingsPanel/>;
  if(tab==="History")return <TradeHistoryPanel/>;
+ if(tab==="Logs")return <ScannerLogsPanel/>;
  if(tab==="cTrader")return <><CTraderConnectPanel/><Card><Heading>Demo connection and execution status</Heading><Row label="Broker environment" value="DERIV DEMO ONLY"/><Row label="OAuth token storage" value="ENCRYPTED SERVER-SIDE"/><Row label="Account authentication" value="VERIFY ON DEVICE"/><Row label="XAUUSD market data" value="AVAILABLE AFTER DEPLOYMENT"/><Row label="Strategy evaluation" value="CONNECTED TO CANDLES"/><Row label="Automated order execution" value="SERVER-GATED DEMO ONLY"/><Text style={s.body}>The app now requests real broker data and reconciles open positions. Order execution remains disabled until the account contract, cash-risk conversion, protective order behaviour and loss-limit enforcement are verified. No live account is accepted.</Text></Card></>;
  return <><AuthPanel/><Card><Heading>Account & profile</Heading><Row label="Broker" value="DERIV"/><Row label="Trading environment" value="DEMO ONLY"/></Card><Card><Heading>Partner income</Heading><Text style={s.body}>Referral / introducing-broker earnings are separate from trading P/L. This section will show approved Deriv partner attribution and confirmed commission statements once an official partner account is linked. No commission is assumed or guaranteed.</Text><Row label="Partner account" value="NOT LINKED"/><Row label="Confirmed commission" value="—"/></Card><Card><Heading>Security</Heading><Text style={s.body}>Gold Hunter AI is configured to use its dedicated Supabase project for authentication and user data. cTrader OAuth and the secure server-side trading gateway are still pending. Never place service-role keys, cTrader client secrets or broker tokens in the mobile app or public repository.</Text></Card></>;
 }
