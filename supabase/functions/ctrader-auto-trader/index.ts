@@ -55,23 +55,37 @@ Deno.serve(async(req)=>{
       outcomes.push({userId,status,reason,...extra});
       try{await admin.from("ctrader_bot_runs").insert({user_id:userId,ctrader_account_id:accountId,environment:"demo",symbol:"XAUUSD",status,reason,details:extra,finished_at:new Date().toISOString()});}catch{/* audit logging must not break execution */}
     };
+    // One evolving audit row per genuine M15 opportunity, rather than one row per minute.
+    const noteOpportunity=async(status:"blocked"|"no_trade",reason:string,opportunityTime:string,extra:Record<string,unknown>={})=>{
+      const details={...extra,opportunityTime};
+      outcomes.push({userId,status,reason,...details});
+      try{
+        const {data:existing}=await admin.from("ctrader_bot_runs")
+          .select("id,details").eq("user_id",userId).eq("symbol","XAUUSD")
+          .in("status",["no_trade","blocked"]).gte("started_at",opportunityTime)
+          .order("started_at",{ascending:false}).limit(20);
+        const prior=(existing??[]).find(row=>String(row.details?.opportunityTime??"")===opportunityTime);
+        if(prior){
+          await admin.from("ctrader_bot_runs").update({status,reason,details,finished_at:new Date().toISOString()}).eq("id",prior.id);
+        }else{
+          await admin.from("ctrader_bot_runs").insert({user_id:userId,ctrader_account_id:accountId,environment:"demo",symbol:"XAUUSD",status,reason,details,started_at:opportunityTime,finished_at:new Date().toISOString()});
+        }
+      }catch{/* audit logging must not break execution */}
+    };
     try{
       const {data:locked,error:lockError}=await admin.rpc("acquire_ctrader_bot_lock",{p_user_id:userId,p_lock_token:lock,p_ttl_seconds:120});
       if(lockError||!locked){outcomes.push({userId,status:"skipped",reason:"Another bot scan is already running"});continue;}
       const {data:risk,error:riskError}=await admin.from("risk_settings").select("*").eq("user_id",userId).maybeSingle();
       if(riskError||!risk||risk.demo_only!==true||risk.trading_enabled!==true||!(num(risk.lot_size)>0)){
-        await note("blocked","Choose a valid lot size and explicitly enable DEMO trading before scanning");continue;
+        outcomes.push({userId,status:"blocked",reason:"DEMO trading settings are not ready"});continue;
       }
       const {data:account,error:accountError}=await admin.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status,account_currency").eq("user_id",userId).eq("environment","demo").eq("connection_status","connected").maybeSingle();
-      if(accountError||!account){await note("blocked","No connected Deriv demo account");continue;}
+      if(accountError||!account){outcomes.push({userId,status:"blocked",reason:"No connected Deriv demo account"});continue;}
       accountId=String(account.ctrader_account_id);
       const brokerCurrency=String(account.account_currency??"").trim().toUpperCase();
       const configuredCurrency=String(risk.account_currency??"").trim().toUpperCase();
       if(!/^[A-Z]{3,8}$/.test(brokerCurrency)||configuredCurrency!==brokerCurrency){
-        await note("blocked",brokerCurrency
-          ?`Risk amounts are not confirmed in the broker deposit currency (${brokerCurrency}). Save risk settings again after the account currency is displayed.`
-          :"The broker deposit currency has not been verified. No order is allowed.");
-        continue;
+        outcomes.push({userId,status:"blocked",reason:"Broker deposit currency and risk settings are not yet verified"});continue;
       }
       const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",userId).maybeSingle();
       if(tokenError||!tokenRow)throw new Error("Encrypted cTrader token unavailable");
@@ -79,32 +93,50 @@ Deno.serve(async(req)=>{
       const data=await market.json();
       if(!market.ok||!data.connected)throw new Error(data.error??"Market data scan failed");
       const s=data.strategy;
-      // High-impact USD calendar protection is mandatory. Market data must explicitly
-      // confirm a clear window; missing/unconfigured news data fails closed.
+      // Routine scans and early strategy failures are deliberately silent.
+      // A log is created only after the strategy has identified a real M15 pullback
+      // worth tracking, or when a complete candidate reaches an external safety gate.
+      if(data.dataReady!==true||data.quoteFresh!==true||data.candlesFresh!==true||!s){
+        outcomes.push({userId,status:"scan_only",reason:"No reliable, complete setup evaluation this cycle"});
+        continue;
+      }
+      const opportunityStage=["pullback","sweep","M15_break","confirmed"].includes(String(s.setup));
+      const latestM15=data.candles?.m15?.at(-1);
+      if(s.status!=="candidate"&&!opportunityStage){
+        outcomes.push({userId,status:"scan_only",reason:"No qualified M15 opportunity"});
+        continue;
+      }
+      if(!latestM15?.time){
+        outcomes.push({userId,status:"scan_only",reason:"No completed M15 candle timestamp for opportunity tracking"});
+        continue;
+      }
+      const opportunityTime=new Date(Number(latestM15.time)).toISOString();
+      const opportunityDetails={
+        direction:s.direction,
+        setup:s.setup,
+        confirmation:s.confirmation,
+        strategyScore:s.score,
+        estimatedEntry:s.entry,
+        estimatedStop:s.stop,
+        estimatedTarget:s.target,
+        dataQuality:data.dataQuality??null,
+        h4:s.h4,
+        h1:s.h1
+      };
+      if(s.status!=="candidate"||!["buy","sell"].includes(s.direction)){
+        await noteOpportunity("no_trade",(s.reasons??["Qualified M15 opportunity did not complete all entry confirmations."]).join(" "),opportunityTime,opportunityDetails);
+        continue;
+      }
+      // High-impact USD calendar protection is checked only for a genuine candidate.
       if(data.newsProtection?.status!=="clear"){
-        await note("blocked","High-impact USD news protection is not verified clear; no order is allowed.");
+        await noteOpportunity("blocked","High-impact USD news protection is not verified clear; no order is allowed.",opportunityTime,{...opportunityDetails,newsProtection:data.newsProtection??null});
         continue;
       }
-      const gateFailures:string[]=[];
-      if(data.dataReady!==true)gateFailures.push("Market data readiness check failed.");
-      if(data.quoteFresh!==true)gateFailures.push("XAUUSD quote is stale or failed its timestamp check.");
-      if(data.candlesFresh!==true)gateFailures.push("One or more timeframe candle sets are stale or unavailable.");
-      if(data.sessionOpen!==true)gateFailures.push("Outside the configured London/New York trading sessions.");
-      if(!s)gateFailures.push("Strategy evaluation was unavailable because required market data was not ready.");
-      else if(s.status!=="candidate"||!["buy","sell"].includes(s.direction)){
-        if(Array.isArray(s.reasons)&&s.reasons.length)gateFailures.push(...s.reasons.map((reason:unknown)=>String(reason)));
-        else gateFailures.push("Strategy did not produce a valid BUY or SELL candidate.");
-      }
-      if(gateFailures.length){
-        await note("no_trade",gateFailures.join(" "),{
-          dataQuality:data.dataQuality??null,
-          strategyStatus:s?.status??"unavailable",
-          strategyDirection:s?.direction??"none",
-          strategyReasons:s?.reasons??[]
-        });
+      if(data.sessionOpen!==true){
+        await noteOpportunity("blocked","Outside the configured London and New York trading sessions.",opportunityTime,opportunityDetails);
         continue;
       }
-      if((data.openPositions?.length??0)>0||(data.pendingOrders?.length??0)>0){await note("blocked","Existing broker position or pending order; one-position limit");continue;}
+      if((data.openPositions?.length??0)>0||(data.pendingOrders?.length??0)>0){await noteOpportunity("blocked","Existing broker position or pending order; one-position limit.",opportunityTime,opportunityDetails);continue;}
       const now=new Date();
       // Daily/weekly risk periods follow the user's configured South African timezone.
       const johannesburgNow=new Date(now.getTime()+2*60*60*1000);
@@ -116,14 +148,14 @@ Deno.serve(async(req)=>{
       // Keep a pause after three consecutive losses today; daily/weekly cash caps are removed.
       const consecutiveLosses=(lastClosed??[]).length>=3&&(lastClosed??[]).every(t=>net(t)<0)?3:0;
       if(consecutiveLosses>=3){
-        await note("blocked","Three consecutive losing trades today; trading paused until the next South African day.");continue;
+        await noteOpportunity("blocked","Three consecutive losing trades today; trading paused until the next South African day.",opportunityTime,opportunityDetails);continue;
       }
       // XAUUSD is quoted in USD. We only size automatically when the broker confirms
       // the account deposit asset is the same USD quote asset. Never guess FX conversion.
       if(!data.symbol?.quoteAssetId||!data.account?.depositAssetId||
         String(data.symbol.quoteAssetId)!==String(data.account.depositAssetId)||
         String(data.account?.currency??"").toUpperCase()!==brokerCurrency){
-        await note("blocked","XAUUSD quote currency and verified account deposit currency do not match; no unverified FX conversion is allowed.");continue;
+        await noteOpportunity("blocked","XAUUSD quote currency and verified account deposit currency do not match; no unverified FX conversion is allowed.",opportunityTime,opportunityDetails);continue;
       }
       const lotSize=num(data.symbol.lotSize),digits=num(data.symbol.digits),minVolume=num(data.symbol.minVolume),stepVolume=num(data.symbol.stepVolume),maxVolume=num(data.symbol.maxVolume);
       const measurementUnits=String(data.symbol.measurementUnits??"").trim().toUpperCase();
@@ -134,14 +166,14 @@ Deno.serve(async(req)=>{
       
       const selectedLots=num(risk.lot_size);
       if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits.includes("OZ")&&selectedLots>0)){
-        await note("blocked","Broker contract, selected lot size or structural stop/target data is invalid");continue;
+        await noteOpportunity("blocked","Broker contract, selected lot size or structural stop/target data is invalid.",opportunityTime,opportunityDetails);continue;
       }
       // Convert the user's selected lots to cTrader protocol volume. Never silently
       // resize the user's choice: reject values outside broker limits or off its step.
       const rawVolume=selectedLots*lotSize;
       const volume=Math.round(rawVolume/stepVolume)*stepVolume;
       if(!(Number.isFinite(volume)&&volume>=minVolume&&volume<=maxVolume&&Math.abs(volume-rawVolume)<=Math.max(1e-6,stepVolume*1e-6))){
-        await note("blocked","Selected lot size does not fit this broker's permitted volume range/step.",{selectedLots,minVolume,maxVolume,stepVolume});continue;
+        await noteOpportunity("blocked","Selected lot size does not fit this broker's permitted volume range/step.",opportunityTime,{...opportunityDetails,selectedLots,minVolume,maxVolume,stepVolume});continue;
       }
       const commissionEstimate=estimateXauUsdRoundTurnCommission({
         volumeProtocol:volume,entryPrice:Math.max(executableEntry,structuralStop),lotSizeProtocol:lotSize,
@@ -152,7 +184,7 @@ Deno.serve(async(req)=>{
         minCommissionType:data.symbol.minCommissionType==null?null:num(data.symbol.minCommissionType),
         minCommissionAsset:data.symbol.minCommissionAsset==null?null:String(data.symbol.minCommissionAsset)
       });
-      if(!commissionEstimate.ok){await note("blocked",commissionEstimate.reason);continue;}
+      if(!commissionEstimate.ok){await noteOpportunity("blocked",commissionEstimate.reason,opportunityTime,opportunityDetails);continue;}
       const estimatedCashRisk=stopDistance*(volume/100)+commissionEstimate.roundTurn;
       const token=await freshToken(admin,tokenRow);const brokerAccountId=num(account.ctrader_account_id);
       const ws=new WebSocket("wss://demo.ctraderapi.com:5036");
