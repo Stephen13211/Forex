@@ -235,7 +235,15 @@ Deno.serve(async(req)=>{
     if(!candlesFresh)strategy=null;
     const newsProtection=await getUsdNewsProtection(admin);
     const result={
-      connected:true,environment:"demo",accountId,newsProtection,symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
+      connected:true,environment:"demo",accountId,newsProtection,
+      dataQuality:{
+        barsReady,
+        candleCounts:Object.fromEntries(Object.entries(candles).map(([key,bars])=>[key,bars.length])),
+        candleAgesMinutes:Object.fromEntries(Object.entries(candles).map(([key,bars])=>[key,bars.length?Math.round((now-bars[bars.length-1].time)/60000):null])),
+        quoteAgeSeconds:Math.round((now-spotTimestamp)/1000),
+        minimumBarsRequired:220
+      },
+      symbol:{name:String(detail.symbolName??symbol.symbolName),symbolId,digits:detail.digits??null,pipPosition:detail.pipPosition??null,
         minVolume:detail.minVolume??null,stepVolume:detail.stepVolume??null,maxVolume:detail.maxVolume??null,lotSize:detail.lotSize??null,measurementUnits:detail.measurementUnits??null,
         tradingMode:detail.tradingMode??null,baseAssetId:detail.baseAssetId??null,quoteAssetId:detail.quoteAssetId??null,
         commission:detail.commission??null,commissionType:detail.commissionType??null,
