@@ -126,7 +126,7 @@ export function evaluateGoldSetup(input: {
   const target = direction === "buy" ? entry + distance * rr : entry - distance * rr;
   const score = 100;
   reasons.push("H4/H1 direction aligned, M15 EMA pullback, trendline confluence, liquidity sweep and structure break present, M5 confirmation present.");
-  reasons.push("Stop is beyond the latest confirmed M15 swing with an ATR buffer; volume must be sized to the owner's fixed cash-risk cap.");
+  reasons.push("Stop is beyond the latest confirmed M15 swing with an ATR buffer; execution uses the owner's selected lot size and never moves the stop to fit volume.");
   reasons.push("External spread, news, session, freshness, account and broker-contract gates must pass before any order.");
   return { direction, score, status:"candidate", h4,h1,setup:"pullback_and_structure_break",confirmation:"m5_close_confirmation",
     entry,stop,target,atrM15:a,reasons };
