@@ -253,12 +253,12 @@ function HomeDashboard(){
   if(!user){if(active){setBroker("SIGN IN REQUIRED");setRisk("NOT CONFIGURED");}return;}
   const [account,settings,botSettings]=await Promise.all([
    supabase.from("ctrader_accounts").select("connection_status,environment").eq("user_id",user.id).eq("environment","demo").maybeSingle(),
-   supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash,trading_enabled").eq("user_id",user.id).maybeSingle(),
+   supabase.from("risk_settings").select("lot_size,trading_enabled").eq("user_id",user.id).maybeSingle(),
    supabase.from("bot_settings").select("bot_enabled,environment").eq("user_id",user.id).maybeSingle()
   ]);
   if(!active)return;
   setBroker(account.data?.connection_status==="connected"?"DERIV DEMO LINKED":"NOT CONNECTED");
-  setRisk(settings.data?.cash_risk_per_trade&&settings.data?.daily_loss_limit_cash&&settings.data?.weekly_loss_limit_cash?"CONFIGURED":"NOT CONFIGURED");
+  setRisk(settings.data?.lot_size&&Number(settings.data.lot_size)>0?"LOT SIZE SET":"CHOOSE LOT SIZE");
   setExecution(settings.data?.trading_enabled===true?"PERMISSION ENABLED · DEMO":"LOCKED");
   setBot(botSettings.data?.bot_enabled?"ENABLED IN SETTINGS":"STOPPED");
  })();return()=>{active=false;};},[]);
