@@ -85,8 +85,24 @@ Deno.serve(async(req)=>{
         await note("blocked","High-impact USD news protection is not verified clear; no order is allowed.");
         continue;
       }
-      if(!data.dataReady||!data.quoteFresh||!data.candlesFresh||!data.sessionOpen||!s||s.status!=="candidate"||!["buy","sell"].includes(s.direction)){
-        await note("no_trade",(s?.reasons??["Market/session/strategy gates not satisfied"]).join(" "));continue;
+      const gateFailures:string[]=[];
+      if(data.dataReady!==true)gateFailures.push("Market data readiness check failed.");
+      if(data.quoteFresh!==true)gateFailures.push("XAUUSD quote is stale or failed its timestamp check.");
+      if(data.candlesFresh!==true)gateFailures.push("One or more timeframe candle sets are stale or unavailable.");
+      if(data.sessionOpen!==true)gateFailures.push("Outside the configured London/New York trading sessions.");
+      if(!s)gateFailures.push("Strategy evaluation was unavailable because required market data was not ready.");
+      else if(s.status!=="candidate"||!["buy","sell"].includes(s.direction)){
+        if(Array.isArray(s.reasons)&&s.reasons.length)gateFailures.push(...s.reasons.map((reason:unknown)=>String(reason)));
+        else gateFailures.push("Strategy did not produce a valid BUY or SELL candidate.");
+      }
+      if(gateFailures.length){
+        await note("no_trade",gateFailures.join(" "),{
+          dataQuality:data.dataQuality??null,
+          strategyStatus:s?.status??"unavailable",
+          strategyDirection:s?.direction??"none",
+          strategyReasons:s?.reasons??[]
+        });
+        continue;
       }
       if((data.openPositions?.length??0)>0||(data.pendingOrders?.length??0)>0){await note("blocked","Existing broker position or pending order; one-position limit");continue;}
       const now=new Date();
