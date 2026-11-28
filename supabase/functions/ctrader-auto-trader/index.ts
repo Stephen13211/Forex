@@ -94,8 +94,6 @@ Deno.serve(async(req)=>{
       const johannesburgNow=new Date(now.getTime()+2*60*60*1000);
       const localMidnightUtc=Date.UTC(johannesburgNow.getUTCFullYear(),johannesburgNow.getUTCMonth(),johannesburgNow.getUTCDate())-2*60*60*1000;
       const dayStart=new Date(localMidnightUtc).toISOString();
-      const weekday=(johannesburgNow.getUTCDay()+6)%7;
-      const weekStart=new Date(localMidnightUtc-weekday*24*60*60*1000).toISOString();
       const {data:lastClosed,error:lastError}=await admin.from("trade_history").select("profit,commission,swap").eq("user_id",userId).eq("status","closed").gte("closed_at",dayStart).order("closed_at",{ascending:false}).limit(3);
       if(lastError)throw new Error("Could not verify the consecutive-loss safety pause");
       const net=(t:Record<string,unknown>)=>num(t.profit??0)-Math.abs(num(t.commission??0))-Math.abs(num(t.swap??0));
@@ -230,7 +228,7 @@ Deno.serve(async(req)=>{
           strategy_score:num(s.score),is_demo:true,status:"open",opened_at:new Date().toISOString()
         });
         if(historyError)throw historyError;
-        await note("filled","Demo order filled with broker-verified structural SL/TP",{positionId:String(position.positionId),volume:actualVolume/100,lots:actualVolume/lotSize,estimatedCashRisk:actualCashRisk});
+        await note("filled","Demo order filled with broker-verified structural SL/TP",{positionId:String(position.positionId),volume:actualVolume/100,lots:actualVolume/lotSize,estimatedCashRisk,actualCashRisk});
       }finally{try{ws.close(1000,"Bot scan complete");}catch{/* closed */}}
     }catch(e){
       const message=e instanceof Error?e.message:"Unknown bot execution error";
