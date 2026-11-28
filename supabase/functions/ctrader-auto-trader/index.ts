@@ -15,7 +15,7 @@ function waitFor(ws:WebSocket,type:number,id:string,timeout=15000):Promise<Msg>{
         if(m.payloadType===type&&(!m.clientMsgId||m.clientMsgId===id)){
           const execution=Number(m.payload?.executionType??0);
           if(type===2126&&execution===2)return;
-          if(type===2126&&execution===7){finish(new Error("cTrader rejected the order"));return;}
+          if(type===2126&&(execution===1||execution===7)){finish(new Error("cTrader rejected the order: "+JSON.stringify(m.payload??{})));return;}
           finish(undefined,m);
         }
       }catch(e){finish(e instanceof Error?e:new Error("Invalid cTrader response"));}
@@ -42,29 +42,36 @@ async function freshToken(admin:ReturnType<typeof supabaseAdmin>,row:Record<stri
 const num=(v:unknown)=>Number(v);
 Deno.serve(async(req)=>{
   if(req.method!=="POST")return json({error:"POST required"},405);
-  const schedulerSecret=requiredEnv("GOLD_HUNTER_SCHEDULER_SECRET");
-  if(req.headers.get("Authorization")!==`Bearer ${schedulerSecret}`)return json({error:"Unauthorized scheduler request"},401);
+  const presented=(req.headers.get("Authorization")??"").replace(/^Bearer\s+/i,"");
+  const acceptedSecrets=[Deno.env.get("GOLD_HUNTER_SCHEDULER_SECRET"),Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")].filter((v):v is string=>!!v);
+  if(!presented||!acceptedSecrets.includes(presented))return json({error:"Unauthorized scheduler request"},401);
   const admin=supabaseAdmin();const outcomes:Record<string,unknown>[]=[];
   const {data:settings,error}=await admin.from("bot_settings").select("user_id,environment,bot_enabled,symbol").eq("bot_enabled",true).eq("environment","demo").eq("symbol","XAUUSD");
   if(error)return json({error:"Could not load bot settings"},500);
   for(const setting of settings??[]){
     const userId=String(setting.user_id);const lock=crypto.randomUUID();
+    let accountId="unknown";
+    const note=async(status:"blocked"|"no_trade"|"filled",reason:string,extra:Record<string,unknown>={})=>{
+      outcomes.push({userId,status,reason,...extra});
+      try{await admin.from("ctrader_bot_runs").insert({user_id:userId,ctrader_account_id:accountId,environment:"demo",symbol:"XAUUSD",status,reason,details:extra,finished_at:new Date().toISOString()});}catch{/* audit logging must not break execution */}
+    };
     try{
       const {data:locked,error:lockError}=await admin.rpc("acquire_ctrader_bot_lock",{p_user_id:userId,p_lock_token:lock,p_ttl_seconds:120});
       if(lockError||!locked){outcomes.push({userId,status:"skipped",reason:"Another bot scan is already running"});continue;}
       const {data:risk,error:riskError}=await admin.from("risk_settings").select("*").eq("user_id",userId).maybeSingle();
       if(riskError||!risk||risk.demo_only!==true||risk.trading_enabled!==true||
         !(num(risk.cash_risk_per_trade)>0)||!(num(risk.daily_loss_limit_cash)>0)||!(num(risk.weekly_loss_limit_cash)>0)){
-        outcomes.push({userId,status:"blocked",reason:"Trading must be explicitly enabled and fixed trade, daily and weekly cash-risk limits must be configured"});continue;
+        await note("blocked","Trading must be explicitly enabled and fixed trade, daily and weekly cash-risk limits must be configured");continue;
       }
       const {data:account,error:accountError}=await admin.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status,account_currency").eq("user_id",userId).eq("environment","demo").eq("connection_status","connected").maybeSingle();
-      if(accountError||!account){outcomes.push({userId,status:"blocked",reason:"No connected Deriv demo account"});continue;}
+      if(accountError||!account){await note("blocked","No connected Deriv demo account");continue;}
+      accountId=String(account.ctrader_account_id);
       const brokerCurrency=String(account.account_currency??"").trim().toUpperCase();
       const configuredCurrency=String(risk.account_currency??"").trim().toUpperCase();
       if(!/^[A-Z]{3,8}$/.test(brokerCurrency)||configuredCurrency!==brokerCurrency){
-        outcomes.push({userId,status:"blocked",reason:brokerCurrency
+        await note("blocked",brokerCurrency
           ?`Risk amounts are not confirmed in the broker deposit currency (${brokerCurrency}). Save risk settings again after the account currency is displayed.`
-          :"The broker deposit currency has not been verified. No order is allowed."});
+          :"The broker deposit currency has not been verified. No order is allowed.");
         continue;
       }
       const {data:tokenRow,error:tokenError}=await admin.from("ctrader_oauth_tokens").select("user_id,access_token_ciphertext,refresh_token_ciphertext,token_expires_at").eq("user_id",userId).maybeSingle();
@@ -76,13 +83,13 @@ Deno.serve(async(req)=>{
       // High-impact USD calendar protection is mandatory. Market data must explicitly
       // confirm a clear window; missing/unconfigured news data fails closed.
       if(data.newsProtection?.status!=="clear"){
-        outcomes.push({userId,status:"blocked",reason:"High-impact USD news protection is not verified clear; no order is allowed."});
+        await note("blocked","High-impact USD news protection is not verified clear; no order is allowed.");
         continue;
       }
       if(!data.dataReady||!data.quoteFresh||!data.candlesFresh||!data.sessionOpen||!s||s.status!=="candidate"||!["buy","sell"].includes(s.direction)){
-        outcomes.push({userId,status:"no_trade",reason:(s?.reasons??["Market/session/strategy gates not satisfied"]).join(" ")});continue;
+        await note("no_trade",(s?.reasons??["Market/session/strategy gates not satisfied"]).join(" "));continue;
       }
-      if((data.openPositions?.length??0)>0||(data.pendingOrders?.length??0)>0){outcomes.push({userId,status:"blocked",reason:"Existing broker position or pending order; one-position limit"});continue;}
+      if((data.openPositions?.length??0)>0||(data.pendingOrders?.length??0)>0){await note("blocked","Existing broker position or pending order; one-position limit");continue;}
       const now=new Date();
       // Daily/weekly risk periods follow the user's configured South African timezone.
       const johannesburgNow=new Date(now.getTime()+2*60*60*1000);
@@ -101,14 +108,14 @@ Deno.serve(async(req)=>{
       // South African trading day. A win resets the streak; a new day starts fresh.
       const consecutiveLosses=(lastClosed??[]).length>=3&&(lastClosed??[]).every(t=>net(t)<0)?3:0;
       if(dailyLoss>=num(risk.daily_loss_limit_cash)||weeklyLoss>=num(risk.weekly_loss_limit_cash)||consecutiveLosses>=3){
-        outcomes.push({userId,status:"blocked",reason:consecutiveLosses>=3?"Three consecutive losing trades today; trading paused until the next South African day.":"Daily/weekly cash loss limit reached; bot paused"});continue;
+        await note("blocked",consecutiveLosses>=3?"Three consecutive losing trades today; trading paused until the next South African day.":"Daily/weekly cash loss limit reached; bot paused");continue;
       }
       // XAUUSD is quoted in USD. We only size automatically when the broker confirms
       // the account deposit asset is the same USD quote asset. Never guess FX conversion.
       if(!data.symbol?.quoteAssetId||!data.account?.depositAssetId||
         String(data.symbol.quoteAssetId)!==String(data.account.depositAssetId)||
         String(data.account?.currency??"").toUpperCase()!==brokerCurrency){
-        outcomes.push({userId,status:"blocked",reason:"XAUUSD quote currency and verified account deposit currency do not match; no unverified FX conversion is allowed."});continue;
+        await note("blocked","XAUUSD quote currency and verified account deposit currency do not match; no unverified FX conversion is allowed.");continue;
       }
       const lotSize=num(data.symbol.lotSize),digits=num(data.symbol.digits),minVolume=num(data.symbol.minVolume),stepVolume=num(data.symbol.stepVolume),maxVolume=num(data.symbol.maxVolume);
       const measurementUnits=String(data.symbol.measurementUnits??"").trim().toUpperCase();
@@ -121,11 +128,11 @@ Deno.serve(async(req)=>{
       // Quote and deposit assets were verified identical above, so no quote-to-deposit
       // conversion fee applies. Include supported cTrader commission schedules in sizing.
       if(num(data.symbol.minCommission??0)>0&&data.symbol.preciseMinCommission==null){
-        outcomes.push({userId,status:"blocked",reason:"Broker minimum commission is positive but its precise value is missing; no order is allowed."});
+        await note("blocked","Broker minimum commission is positive but its precise value is missing; no order is allowed.");
         continue;
       }
-      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits==="OZ")){
-        outcomes.push({userId,status:"blocked",reason:"Broker contract or structural stop/target data is invalid"});continue;
+      if(!(lotSize>0&&digits>=0&&minVolume>0&&stepVolume>0&&maxVolume>=minVolume&&stopDistance>0&&targetDistance>=stopDistance*2&&Number(data.symbol.tradingMode)===0&&measurementUnits.includes("OZ"))){
+        await note("blocked","Broker contract or structural stop/target data is invalid");continue;
       }
       // cTrader volume and lotSize are both protocol cents. Price loss and estimated
       // opening + closing commission must fit inside the configured cash-risk cap.
@@ -138,7 +145,7 @@ Deno.serve(async(req)=>{
         minCommissionType:data.symbol.minCommissionType==null?null:num(data.symbol.minCommissionType),
         minCommissionAsset:data.symbol.minCommissionAsset==null?null:String(data.symbol.minCommissionAsset)
       });
-      if(!sizing.ok){outcomes.push({userId,status:"blocked",reason:sizing.reason});continue;}
+      if(!sizing.ok){await note("blocked",sizing.reason);continue;}
       const volume=sizing.volume;
       const token=await freshToken(admin,tokenRow);const accountId=num(account.ctrader_account_id);
       const ws=new WebSocket("wss://demo.ctraderapi.com:5036");
@@ -230,11 +237,11 @@ Deno.serve(async(req)=>{
           strategy_score:num(s.score),is_demo:true,status:"open",opened_at:new Date().toISOString()
         });
         if(historyError)throw historyError;
-        outcomes.push({userId,status:"filled",positionId:String(position.positionId),volume:actualVolume/100,estimatedCashRisk:actualCashRisk});
+        await note("filled","Demo order filled with broker-verified SL/TP",{positionId:String(position.positionId),volume:actualVolume/100,estimatedCashRisk:actualCashRisk});
       }finally{try{ws.close(1000,"Bot scan complete");}catch{/* closed */}}
     }catch(e){
       const message=e instanceof Error?e.message:"Unknown bot execution error";
-      await admin.from("ctrader_bot_runs").insert({user_id:userId,ctrader_account_id:"unknown",environment:"demo",symbol:"XAUUSD",status:"failed",reason:message,details:{}});
+      try{await admin.from("ctrader_bot_runs").insert({user_id:userId,ctrader_account_id:accountId,environment:"demo",symbol:"XAUUSD",status:"failed",reason:message,details:{},finished_at:new Date().toISOString()});}catch{/* audit logging must not break execution */}
       outcomes.push({userId,status:"failed",reason:message});
     }finally{
       await admin.rpc("release_ctrader_bot_lock",{p_user_id:userId,p_lock_token:lock});
