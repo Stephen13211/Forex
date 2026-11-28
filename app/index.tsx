@@ -83,44 +83,42 @@ function CTraderConnectPanel(){
 
 
 function RiskSettingsPanel(){
- const [risk,setRisk]=useState(""),[daily,setDaily]=useState(""),[weekly,setWeekly]=useState("");
- const [accountCurrency,setAccountCurrency]=useState(""),[riskCurrency,setRiskCurrency]=useState("");
- const [busy,setBusy]=useState(false),[message,setMessage]=useState("Connect your demo account to verify the deposit currency before setting cash risk.");
+ const [lots,setLots]=useState("0.01");
+ const [accountCurrency,setAccountCurrency]=useState("");
+ const [busy,setBusy]=useState(false),[message,setMessage]=useState("Choose your position size in lots. Connect your Deriv DEMO account before starting.");
  const [botEnabled,setBotEnabled]=useState(false),[tradingPermission,setTradingPermission]=useState(false),[botBusy,setBotBusy]=useState(false),[botMessage,setBotMessage]=useState("Scanner status and DEMO execution permission are checked separately.");
  useEffect(()=>{let active=true;(async()=>{
   const {data:{user}}=await supabase.auth.getUser();
-  if(!user){if(active)setMessage("Sign in before saving risk settings.");return;}
-  const {data,error}=await supabase.from("risk_settings").select("cash_risk_per_trade,daily_loss_limit_cash,weekly_loss_limit_cash,account_currency,trading_enabled,max_consecutive_losses").eq("user_id",user.id).maybeSingle();
+  if(!user){if(active)setMessage("Sign in before saving your lot size.");return;}
+  const {data,error}=await supabase.from("risk_settings").select("lot_size,account_currency,trading_enabled").eq("user_id",user.id).maybeSingle();
   const {data:brokerAccount}=await supabase.from("ctrader_accounts").select("account_currency,connection_status").eq("user_id",user.id).eq("environment","demo").maybeSingle();
   const verifiedCurrency=String(brokerAccount?.account_currency??"").trim().toUpperCase();
   if(active)setAccountCurrency(/^[A-Z]{3,8}$/.test(verifiedCurrency)?verifiedCurrency:"");
   if(!active)return;
-  if(error){setMessage("Could not load risk settings: "+error.message);return;}
-  if(data){setRisk(data.cash_risk_per_trade==null?"":String(data.cash_risk_per_trade));setDaily(data.daily_loss_limit_cash==null?"":String(data.daily_loss_limit_cash));setWeekly(data.weekly_loss_limit_cash==null?"":String(data.weekly_loss_limit_cash));setTradingPermission(data.trading_enabled===true);setRiskCurrency(String(data.account_currency??"").trim().toUpperCase()); }
-  if(data?.account_currency&&verifiedCurrency&&String(data.account_currency).toUpperCase()!==verifiedCurrency&&active)setMessage("Broker deposit currency changed. Save your risk settings again in "+verifiedCurrency+".");
+  if(error){setMessage("Could not load trading settings: "+error.message);return;}
+  if(data){setLots(data.lot_size==null?"0.01":String(data.lot_size));setTradingPermission(data.trading_enabled===true);}
   const {data:botData}=await supabase.from("bot_settings").select("bot_enabled").eq("user_id",user.id).maybeSingle();
   if(active)setBotEnabled(botData?.bot_enabled===true);
  })();return()=>{active=false;};},[]);
  async function setAutomaticTrading(enabled:boolean){
-  setBotBusy(true);setBotMessage(enabled?"Checking demo account, market data and safety gates…":"Stopping automatic demo trading…");
+  setBotBusy(true);setBotMessage(enabled?"Checking your selected lot size, demo account, market data and safety gates…":"Stopping automatic demo trading…");
   const {data:{user}}=await supabase.auth.getUser();
   if(!user){setBotBusy(false);setBotMessage("Sign in before changing automatic trading.");return;}
   if(enabled){
-   const values=[risk,daily,weekly].map(v=>Number(v));
-   if(values.some((v,i)=>!Number.isFinite(v)||v<=0||![risk,daily,weekly][i].trim())){setBotBusy(false);setBotMessage("Configure all three positive cash-risk amounts before starting.");return;}
+   const selectedLots=Number(lots);
+   if(!Number.isFinite(selectedLots)||selectedLots<=0){setBotBusy(false);setBotMessage("Enter a valid lot size greater than zero and save it first.");return;}
    const {data:account,error:accountError}=await supabase.from("ctrader_accounts").select("ctrader_account_id,environment,connection_status,account_currency").eq("user_id",user.id).eq("environment","demo").eq("connection_status","connected").maybeSingle();
    const verifiedCurrency=String(account?.account_currency??"").trim().toUpperCase();
-   if(accountError||!account||!/^[A-Z]{3,8}$/.test(verifiedCurrency)){setBotBusy(false);setBotMessage("Start blocked: the Deriv DEMO deposit currency has not been verified. Refresh broker market data first.");return;}
-   if(riskCurrency!==verifiedCurrency){setAccountCurrency(verifiedCurrency);setBotBusy(false);setBotMessage("Your risk settings are not confirmed in "+verifiedCurrency+". Press SAVE RISK SETTINGS before starting.");return;}
+   if(accountError||!account||!/^[A-Z]{3,8}$/.test(verifiedCurrency)){setBotBusy(false);setBotMessage("Start blocked: connect your Deriv DEMO account and verify its deposit currency first.");return;}
    const {data:market,error:marketError}=await supabase.functions.invoke("ctrader-market-data",{body:{}});
-   if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.verified!==true||market?.newsProtection?.status==="unknown"){
-    setBotBusy(false);setBotMessage("Start blocked: live broker data and a fresh, verified high-impact USD news calendar are required.");return;
+   if(marketError||!market?.connected||!market?.dataReady||!market?.quoteFresh||!market?.candlesFresh||market?.newsProtection?.verified!==true||market?.newsProtection?.status==="unknown"||market?.newsProtection?.status!=="clear"){
+    setBotBusy(false);setBotMessage("Start blocked: fresh broker prices, candles and a verified clear USD news window are required.");return;
    }
-   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,account_currency:verifiedCurrency,currency_confirmed:true,risk_per_trade:values[0],cash_risk_per_trade:values[0],daily_loss_limit:values[1],daily_loss_limit_cash:values[1],weekly_loss_limit:values[2],weekly_loss_limit_cash:values[2],max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
-   if(riskError){setBotBusy(false);setBotMessage("Could not enable risk permission: "+riskError.message);return;}
+   const {error:riskError}=await supabase.from("risk_settings").upsert({user_id:user.id,account_currency:verifiedCurrency,currency_confirmed:true,lot_size:selectedLots,max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,trading_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+   if(riskError){setBotBusy(false);setBotMessage("Could not save DEMO trading settings: "+riskError.message);return;}
    const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:true,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    if(botError){await supabase.from("risk_settings").update({trading_enabled:false}).eq("user_id",user.id);setBotBusy(false);setBotMessage("Could not start the demo scanner: "+botError.message);return;}
-   setBotEnabled(true);setTradingPermission(true);setBotMessage("DEMO execution permission is enabled. The server will still skip every trade unless all broker, news, strategy and risk gates pass.");
+   setAccountCurrency(verifiedCurrency);setBotEnabled(true);setTradingPermission(true);setBotMessage("DEMO scanner enabled. Orders will use your selected lot size and the strategy's structural stop. Broker, news, spread and one-open-position checks remain active.");
   }else{
    const {error:botError}=await supabase.from("bot_settings").upsert({user_id:user.id,environment:"demo",symbol:"XAUUSD",bot_enabled:false,updated_at:new Date().toISOString()},{onConflict:"user_id"});
    const {error:riskError}=await supabase.from("risk_settings").update({trading_enabled:false,updated_at:new Date().toISOString()}).eq("user_id",user.id);
@@ -130,29 +128,25 @@ function RiskSettingsPanel(){
   setBotBusy(false);
  }
  async function save(){
-  const values=[risk,daily,weekly].map(v=>Number(v));
-  if(values.some((v,i)=>!Number.isFinite(v)||v<=0||![""+risk,""+daily,""+weekly][i].trim())){setMessage("Enter three valid positive cash amounts.");return;}
-  if(values[1]<values[0]||values[2]<values[1]){setMessage("Daily loss limit must be at least the per-trade risk, and weekly limit must be at least the daily limit.");return;}
-  if(!/^[A-Z]{3,8}$/.test(accountCurrency)){setMessage("Connect your Deriv DEMO account and refresh broker data so the deposit currency can be verified.");return;}
+  const selectedLots=Number(lots);
+  if(!Number.isFinite(selectedLots)||selectedLots<=0){setMessage("Enter a valid lot size greater than zero.");return;}
   setBusy(true);setMessage("");
   const {data:{user}}=await supabase.auth.getUser();
-  if(!user){setBusy(false);setMessage("Sign in before saving risk settings.");return;}
+  if(!user){setBusy(false);setMessage("Sign in before saving your lot size.");return;}
   const {error}=await supabase.from("risk_settings").upsert({
-   user_id:user.id,account_currency:accountCurrency,currency_confirmed:true,
-   risk_per_trade:values[0],cash_risk_per_trade:values[0],
-   daily_loss_limit:values[1],daily_loss_limit_cash:values[1],
-   weekly_loss_limit:values[2],weekly_loss_limit_cash:values[2],
-   max_open_positions:1,max_consecutive_losses:3,minimum_reward_risk:2,demo_only:true,updated_at:new Date().toISOString()
+   user_id:user.id,lot_size:selectedLots,max_open_positions:1,max_consecutive_losses:3,
+   minimum_reward_risk:2,demo_only:true,updated_at:new Date().toISOString()
   },{onConflict:"user_id"});
-  setBusy(false);if(!error)setRiskCurrency(accountCurrency);setMessage(error?"Risk settings were not saved: "+error.message:(tradingPermission?"Risk settings saved. DEMO execution permission remains enabled; the server still checks every broker, news, strategy and cash-risk safeguard.":"Risk settings saved. DEMO execution permission remains locked until you explicitly start the scanner and all safeguards pass."));
+  setBusy(false);
+  setMessage(error?"Lot size was not saved: "+error.message:(tradingPermission?"Lot size saved. DEMO permission remains enabled.":"Lot size saved. Start the DEMO scanner when you're ready."));
  }
- return <Card><Heading>Fixed cash-risk configuration</Heading>
-  <Text style={s.body}>These amounts are in the verified Deriv demo account deposit currency, not automatically South African rand. The bot will refuse to trade if the currency is missing or does not match the XAUUSD quote currency.</Text>
-  <Row label="Verified account deposit currency" value={accountCurrency||"NOT VERIFIED"}/>
-  <Text style={s.rowLabel}>Cash risk per trade</Text><TextInput value={risk} onChangeText={setRisk} keyboardType="decimal-pad" placeholder="e.g. 10.00" placeholderTextColor={MUTED} style={s.authInput}/>
-  <Text style={s.rowLabel}>Daily maximum loss</Text><TextInput value={daily} onChangeText={setDaily} keyboardType="decimal-pad" placeholder="e.g. 30.00" placeholderTextColor={MUTED} style={s.authInput}/>
-  <Text style={s.rowLabel}>Weekly maximum loss</Text><TextInput value={weekly} onChangeText={setWeekly} keyboardType="decimal-pad" placeholder="e.g. 90.00" placeholderTextColor={MUTED} style={s.authInput}/>
-  <Pressable disabled={busy} onPress={()=>void save()} style={[s.authButton,busy&&{opacity:.5}]}><Text style={s.authButtonText}>{busy?"SAVING…":"SAVE RISK SETTINGS"}</Text></Pressable>
+ return <Card><Heading>Position size and stop-loss</Heading>
+  <Text style={s.body}>Choose the lot size yourself. The bot will keep the stop at the confirmed market-structure swing: below the previous swing low for a BUY, or above the previous swing high for a SELL. It will not move the stop to make a larger lot fit.</Text>
+  <Row label="Verified Deriv demo currency" value={accountCurrency||"NOT CONNECTED"}/>
+  <Text style={s.rowLabel}>Your position size (lots)</Text>
+  <TextInput value={lots} onChangeText={setLots} keyboardType="decimal-pad" placeholder="e.g. 0.01" placeholderTextColor={MUTED} style={s.authInput}/>
+  <Text style={s.muted}>The estimated loss depends on your lot size and the actual distance to the structural stop. Check that amount before allowing the bot to run.</Text>
+  <Pressable disabled={busy} onPress={()=>void save()} style={[s.authButton,busy&&{opacity:.5}]}><Text style={s.authButtonText}>{busy?"SAVING…":"SAVE LOT SIZE"}</Text></Pressable>
   <Text style={s.authMessage}>{message}</Text>
   <Heading>Automatic DEMO trading</Heading>
   <Row label="Scanner status" value={botEnabled?"ENABLED":"STOPPED"}/>
@@ -160,9 +154,9 @@ function RiskSettingsPanel(){
   <Pressable disabled={botBusy||!botEnabled} onPress={()=>void setAutomaticTrading(false)} style={[s.authButton,{backgroundColor:"#252B36",marginTop:9},(botBusy||!botEnabled)&&{opacity:.45}]}><Text style={[s.authButtonText,{color:GOLD}]}>{botBusy?"PLEASE WAIT":"STOP DEMO SCANNER"}</Text></Pressable>
   <Text style={s.authMessage}>{botMessage}</Text>
   <Row label="Maximum open positions" value="1"/>
-  <Row label="Consecutive-loss pause" value="3"/>
-  <Row label="Minimum reward:risk" value="2.0"/>
-  <Row label="Daily trade cap" value="NONE"/>
+  <Row label="Pause after consecutive losses" value="3 in one day"/>
+  <Row label="Daily trade-count cap" value="NONE"/>
+  <Row label="Daily / weekly cash-loss caps" value="REMOVED"/>
   <Row label="Trading permission" value={tradingPermission?"ENABLED · DEMO":"LOCKED OFF"}/>
  </Card>;
 }
