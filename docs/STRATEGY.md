@@ -21,7 +21,7 @@ Bullish structure requires higher highs and higher lows on H4 and H1; bearish st
 - Reject only a lot size the broker cannot accept. No martingale, grid, averaging down or recovery trades.
 
 ## Risk gates
-No arbitrary daily trade-count cap. Take valid setups only, with one open position maximum, a pause after two consecutive losses, and owner-configured daily/weekly cash-loss safeguards. Do not assume R10/R30/R90 or any other cash amount until explicitly configured in the correct account currency. Initial minimum reward:risk is 1:2 after expected costs.
+No daily trade-count cap and no daily/weekly cash-loss caps. Take valid setups only, with one open position maximum and a pause after three consecutive losses in a South African trading day. The owner chooses the lot size. Initial minimum reward:risk is 1:2 after expected costs.
 
 ## Test protocol
 1. Use Deriv cTrader DEMO only.
