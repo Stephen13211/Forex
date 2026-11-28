@@ -16,9 +16,9 @@ Bullish structure requires higher highs and higher lows on H4 and H1; bearish st
 - BUY: stop below the confirmed previous swing low, with a volatility/ATR buffer.
 - SELL: stop above the confirmed previous swing high, with a volatility/ATR buffer.
 - Stop price is determined by market structure first and is never moved to accommodate volume.
-- Size from a fixed cash-risk amount in the actual cTrader account currency, using the broker's tick size/value, contract size, volume minimum/maximum/step and stop distance.
-- Round volume down. If minimum permitted volume exceeds the configured cash-risk limit, skip the trade.
-- No percentage-based sizing, martingale, grid, averaging down or recovery trades.
+- Use the owner's selected fixed lot size. Convert it using the broker's contract size and permitted volume minimum/maximum/step; never silently change the selected size.
+- Keep the structural stop where market structure places it. Estimate the cash loss at that stop from the selected lots and show/log it; do not resize the trade to fit a cash-risk cap.
+- Reject only a lot size the broker cannot accept. No martingale, grid, averaging down or recovery trades.
 
 ## Risk gates
 No arbitrary daily trade-count cap. Take valid setups only, with one open position maximum, a pause after two consecutive losses, and owner-configured daily/weekly cash-loss safeguards. Do not assume R10/R30/R90 or any other cash amount until explicitly configured in the correct account currency. Initial minimum reward:risk is 1:2 after expected costs.
