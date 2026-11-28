@@ -17,7 +17,7 @@ Build zones from confirmed H4/H1 swing highs/lows, previous day and week high/lo
 5. M15 closes through the relevant local structure level in trend direction (BOS/CHOCH context must be explicit).
 6. M5 confirms direction, preferably with a retest/hold; no chasing an extended candle.
 7. Confirm target room and minimum 2R after spread, commission and expected slippage.
-8. Calculate volume from actual symbol tick size/value, contract size, volume min/max/step, account currency and stop distance. Round down. Skip if minimum volume risks more than the configured cash risk.
+8. Convert the owner's selected lot size using the broker's contract size and volume min/max/step. Do not resize the chosen lot or move the structural stop; estimate and log the cash loss implied by the stop distance and selected size.
 
 ## Quality score (initial heuristic, not a probability)
 H4/H1 alignment 20; H1 structure 10; M15 pullback into zone 15; trendline confluence 10; liquidity sweep 10; M15 structure break 15; M5 confirmation 10; reward/risk and room to target 10. Minimum 80/100. Do not double-count correlated features. A high score never overrides a mandatory risk, spread, news, data-freshness or trend-alignment gate.
