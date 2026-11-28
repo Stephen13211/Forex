@@ -263,7 +263,7 @@ function ScannerLogsPanel(){
   setBusy(false);
   if(error){setMessage("Scanner logs could not be loaded: "+error.message);return;}
   setRows(data??[]);
-  setMessage(data?.length?"Showing the latest "+data.length+" scanner events. Pull refresh to check again.":"No scanner events recorded yet. Start the DEMO scanner and check again after its next scheduled scan.");
+  setMessage(data?.length?"Showing the latest "+data.length+" opportunity and execution events. Pull refresh to check again.":"No qualified trading opportunities or execution events recorded yet. Routine scans without a valid setup are intentionally hidden.");
  }
  useEffect(()=>{void load();},[]);
  const visible=rows.filter(row=>{
@@ -275,7 +275,7 @@ function ScannerLogsPanel(){
  const counts={all:rows.length,skipped:rows.filter(r=>r.status==="no_trade"||r.status==="blocked").length,trades:rows.filter(r=>r.status==="filled"||r.status==="order_submitted").length,errors:rows.filter(r=>r.status==="failed").length};
  return <Card>
   <Heading>Trade scanner logs</Heading>
-  <Text style={s.body}>Every recorded DEMO scan outcome appears here, including rejected setups and the reason the bot did not enter. These are scanner audit events, not guaranteed trade signals.</Text>
+  <Text style={s.body}>Only meaningful DEMO trading opportunities, safety blocks, executions and technical errors appear here. Routine minute-by-minute checks and scans with no qualified setup are not logged. Repeated checks for the same M15 opportunity update one record instead of creating duplicates.</Text>
   <Pressable disabled={busy} onPress={()=>void load()} style={[s.authButton,{backgroundColor:"#252B36"},busy&&{opacity:.5}]}><Text style={[s.authButtonText,{color:GOLD}]}>{busy?"REFRESHING…":"REFRESH SCANNER LOGS"}</Text></Pressable>
   <Text style={s.authMessage}>{message}</Text>
   <View style={{flexDirection:"row",flexWrap:"wrap",gap:7,marginVertical:10}}>
