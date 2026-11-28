@@ -42,7 +42,7 @@ async function freshToken(admin:ReturnType<typeof supabaseAdmin>,row:Record<stri
 const num=(v:unknown)=>Number(v);
 Deno.serve(async(req)=>{
   if(req.method!=="POST")return json({error:"POST required"},405);
-  const presented=(req.headers.get("Authorization")??"").replace(/^Bearer\\s+/i,"");
+  const presented=(req.headers.get("Authorization")??"").replace(/^Bearer\s+/i,"");
   const acceptedSecrets=[Deno.env.get("GOLD_HUNTER_SCHEDULER_SECRET"),Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")].filter((v):v is string=>!!v);
   if(!presented||!acceptedSecrets.includes(presented))return json({error:"Unauthorized scheduler request"},401);
   const admin=supabaseAdmin();const outcomes:Record<string,unknown>[]=[];
